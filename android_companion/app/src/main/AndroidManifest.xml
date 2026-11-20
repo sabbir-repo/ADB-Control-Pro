@@ -41,6 +41,11 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".HealAlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <service
             android:name=".WatchdogService"
             android:enabled="true"

@@ -16,6 +16,7 @@ class BootReceiver : BroadcastReceiver() {
             SelfHealEngine.appendLog(context, "System event: $action")
             if (SelfHealEngine.isMasterEnabled(context)) {
                 SelfHealEngine.heal(context, "Boot")
+                HealAlarmReceiver.scheduleNext(context, 30_000L)
                 try {
                     val svc = Intent(context, WatchdogService::class.java)
                     ContextCompat.startForegroundService(context, svc)

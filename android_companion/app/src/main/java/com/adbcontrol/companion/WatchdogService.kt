@@ -54,13 +54,24 @@ class WatchdogService : Service() {
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
+        HealAlarmReceiver.scheduleNext(this, 60_000L)
         handler.postDelayed(periodicTask, PERIODIC_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val st = SelfHealEngine.heal(this, "ServicePing")
         updateNotification(st)
+        HealAlarmReceiver.scheduleNext(this, 60_000L)
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // When user swipes app out of Recents (especially on Tecno HiOS), schedule fast revival!
+        if (SelfHealEngine.isMasterEnabled(this)) {
+            SelfHealEngine.appendLog(this, "App swiped away — scheduling auto-revive (2s)")
+            HealAlarmReceiver.scheduleNext(this, 2_000L)
+        }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

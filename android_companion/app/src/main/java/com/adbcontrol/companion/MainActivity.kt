@@ -98,6 +98,12 @@ class MainActivity : AppCompatActivity() {
         actCard.addView(makeButton("🔋 Allow Unrestricted Battery (Important)", "#3B82F6", "#FFFFFF") {
             requestIgnoreBatteryOptimizations()
         })
+        actCard.addView(makeButton("🚀 Open App Info / Enable Auto-Start", "#0EA5E9", "#FFFFFF") {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        })
         actCard.addView(makeButton("📋 Copy 1-Time ADB Grant Command", "#334155", "#F8FAFC") {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("ADB Grant", grantCmd))
@@ -147,6 +153,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopWatchdog() {
+        HealAlarmReceiver.cancel(this)
         stopService(Intent(this, WatchdogService::class.java))
     }
 

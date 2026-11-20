@@ -1,0 +1,5 @@
+rich
+qrcode
+zeroconf
+customtkinter>=5.2.0
+pywebview>=5.0

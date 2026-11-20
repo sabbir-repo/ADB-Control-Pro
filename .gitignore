@@ -1,0 +1,14 @@
+# Sensitive / local device state (NEVER push PINs/passwords!)
+device_profiles.json
+reconnect_state.json
+
+# Generated media & caches
+screenshots/
+recordings/
+__pycache__/
+*.py[cod]
+.venv/
+android_companion/.gradle/
+android_companion/app/build/
+android_companion/build/
+android_companion/local.properties

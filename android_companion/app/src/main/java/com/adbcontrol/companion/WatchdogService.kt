@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 
@@ -37,6 +38,7 @@ class WatchdogService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var adbObserver: ContentObserver? = null
     private var sysReceiver: BroadcastReceiver? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val periodicTask = object : Runnable {
         override fun run() {
@@ -57,6 +59,7 @@ class WatchdogService : Service() {
         isRunning = true
         createNotificationChannel()
         startForeground(NOTIF_ID, buildNotification("Monitoring Wi-Fi & Telegram Bot..."))
+        acquireWakeLock()
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
@@ -99,7 +102,31 @@ class WatchdogService : Service() {
         handler.removeCallbacks(periodicTask)
         TelegramBotController.stop()
         unregisterMonitors()
+        releaseWakeLock()
         super.onDestroy()
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            if (wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ADBCompanion::TelegramBotLock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {
+        }
+        wakeLock = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

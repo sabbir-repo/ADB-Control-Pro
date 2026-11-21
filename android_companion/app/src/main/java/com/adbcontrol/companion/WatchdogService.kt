@@ -28,8 +28,7 @@ class WatchdogService : Service() {
     companion object {
         private const val CHANNEL_ID = "adb_companion_watchdog"
         private const val NOTIF_ID = 1001
-        private const val PERIODIC_MS = 30_000L
-        const val ACTION_RESTART_BOT = "com.adbcontrol.companion.ACTION_RESTART_BOT"
+        private const val PERIODIC_MS = 15_000L
         @Volatile
         var isRunning: Boolean = false
     }
@@ -44,11 +43,6 @@ class WatchdogService : Service() {
         override fun run() {
             if (!isRunning) return
             val st = SelfHealEngine.heal(this@WatchdogService, "Periodic")
-            if (SelfHealEngine.isTelegramEnabled(this@WatchdogService) && !TelegramBotController.isPolling) {
-                TelegramBotController.start(this@WatchdogService) {
-                    handler.post { updateNotification(SelfHealEngine.heal(this@WatchdogService, "TGUpdate")) }
-                }
-            }
             updateNotification(st)
             handler.postDelayed(this, PERIODIC_MS)
         }
@@ -58,30 +52,16 @@ class WatchdogService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Monitoring Wi-Fi & Telegram Bot..."))
+        startForeground(NOTIF_ID, buildNotification("Monitoring Wi-Fi & Wireless Debugging..."))
         acquireWakeLock()
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
-        TelegramBotController.start(this) {
-            handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
-        }
         HealAlarmReceiver.scheduleNext(this, 30_000L)
         handler.postDelayed(periodicTask, PERIODIC_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_RESTART_BOT) {
-            Thread {
-                TelegramBotController.restart(this) {
-                    handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
-                }
-            }.start()
-        } else if (SelfHealEngine.isTelegramEnabled(this) && !TelegramBotController.isPolling) {
-            TelegramBotController.start(this) {
-                handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
-            }
-        }
         val st = SelfHealEngine.heal(this, "ServicePing")
         updateNotification(st)
         HealAlarmReceiver.scheduleNext(this, 30_000L)
@@ -89,7 +69,6 @@ class WatchdogService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // When user swipes app out of Recents (especially on Tecno HiOS), schedule fast revival!
         if (SelfHealEngine.isMasterEnabled(this)) {
             SelfHealEngine.appendLog(this, "App swiped away — scheduling auto-revive (2s)")
             HealAlarmReceiver.scheduleNext(this, 2_000L)
@@ -99,24 +78,23 @@ class WatchdogService : Service() {
 
     override fun onDestroy() {
         isRunning = false
-        handler.removeCallbacks(periodicTask)
-        TelegramBotController.stop()
+        handler.removeCallbacksAndMessages(null)
         unregisterMonitors()
         releaseWakeLock()
         super.onDestroy()
     }
 
+    override fun onBind(intent: Intent?): IBinder? = null
+
     private fun acquireWakeLock() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
             if (wakeLock == null) {
-                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ADBCompanion::TelegramBotLock").apply {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ADBCompanion::WatchdogLock").apply {
                     setReferenceCounted(false)
                 }
             }
-            if (wakeLock?.isHeld == false) {
-                wakeLock?.acquire()
-            }
+            if (wakeLock?.isHeld == false) wakeLock?.acquire()
         } catch (_: Exception) {
         }
     }
@@ -129,7 +107,17 @@ class WatchdogService : Service() {
         wakeLock = null
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    /** Multi-stage fast retry so repeated manual OFF toggles still re-enable within 1-3 seconds. */
+    private fun scheduleFastHealRetries(tag: String) {
+        for (delayMs in longArrayOf(800L, 3000L, 8000L)) {
+            handler.postDelayed({
+                if (isRunning && !SelfHealEngine.isAdbWifiEnabled(this@WatchdogService)) {
+                    val st = SelfHealEngine.heal(this@WatchdogService, tag)
+                    updateNotification(st)
+                }
+            }, delayMs)
+        }
+    }
 
     private fun registerMonitors() {
         // 1. Instant Wi-Fi connect callback
@@ -140,10 +128,7 @@ class WatchdogService : Service() {
                 .build()
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    handler.postDelayed({
-                        val st = SelfHealEngine.heal(this@WatchdogService, "Wi-Fi Connected")
-                        updateNotification(st)
-                    }, 1500L)
+                    scheduleFastHealRetries("Wi-Fi Connected")
                 }
 
                 override fun onLost(network: Network) {
@@ -158,17 +143,15 @@ class WatchdogService : Service() {
         } catch (_: Exception) {
         }
 
-        // 2. Instant ContentObserver on `adb_wifi_enabled` (re-enables if turned OFF!)
+        // 2. Instant ContentObserver on `adb_wifi_enabled` with multi-retry
         try {
             val obs = object : ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean) {
-                    if (!SelfHealEngine.isAdbWifiEnabled(this@WatchdogService) &&
+                    if (SelfHealEngine.isAutoAdbWifiEnabled(this@WatchdogService) &&
+                        !SelfHealEngine.isAdbWifiEnabled(this@WatchdogService) &&
                         SelfHealEngine.isWifiConnected(this@WatchdogService)
                     ) {
-                        handler.postDelayed({
-                            val st = SelfHealEngine.heal(this@WatchdogService, "ADB Wi-Fi Changed")
-                            updateNotification(st)
-                        }, 800L)
+                        scheduleFastHealRetries("ADB Wi-Fi OFF")
                     }
                 }
             }
@@ -186,10 +169,7 @@ class WatchdogService : Service() {
             val rx = object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context, intent: Intent) {
                     val tag = if (intent.action == Intent.ACTION_USER_PRESENT) "Unlock" else "Wi-Fi State"
-                    handler.postDelayed({
-                        val st = SelfHealEngine.heal(this@WatchdogService, tag)
-                        updateNotification(st)
-                    }, 1000L)
+                    scheduleFastHealRetries(tag)
                 }
             }
             val filter = IntentFilter().apply {
@@ -259,13 +239,12 @@ class WatchdogService : Service() {
     }
 
     private fun updateNotification(st: HealStatus) {
-        val botOn = SelfHealEngine.isTelegramEnabled(this)
         val txt = when {
             !st.hasPermission -> "Needs 1-time ADB WRITE_SECURE_SETTINGS grant"
-            botOn -> "🤖 Telegram Bot Ready | ADB Wi-Fi: ${if (st.adbWifiEnabled) "🟢 ON" else "🔴 OFF"}"
             st.wifiConnected && st.adbWifiEnabled -> "🟢 Wi-Fi & Wireless Debugging Active"
             !st.wifiEnabled -> "⚠️ Wi-Fi OFF — waiting for Wi-Fi"
-            else -> "⏳ Monitoring Wi-Fi & Wireless Debugging"
+            !st.wifiConnected -> "⏳ Connecting to Wi-Fi..."
+            else -> "🔄 Re-enabling Wireless Debugging..."
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(txt))

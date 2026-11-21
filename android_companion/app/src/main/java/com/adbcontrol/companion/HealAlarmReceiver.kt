@@ -14,7 +14,7 @@ class HealAlarmReceiver : BroadcastReceiver() {
         private const val ACTION_HEAL_TICK = "com.adbcontrol.companion.ACTION_HEAL_TICK"
         private const val REQ_CODE = 7701
 
-        fun scheduleNext(context: Context, delayMs: Long = 60_000L) {
+        fun scheduleNext(context: Context, delayMs: Long = 30_000L) {
             if (!SelfHealEngine.isMasterEnabled(context)) return
             val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val intent = Intent(context, HealAlarmReceiver::class.java).apply {
@@ -51,25 +51,14 @@ class HealAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (!SelfHealEngine.isMasterEnabled(context)) return
-        val pending = goAsync()
-        Thread {
+        SelfHealEngine.heal(context, "AlarmWatchdog")
+        if (!WatchdogService.isRunning) {
             try {
-                SelfHealEngine.heal(context, "AlarmWatchdog")
-                if (!WatchdogService.isRunning) {
-                    try {
-                        ContextCompat.startForegroundService(context, Intent(context, WatchdogService::class.java))
-                    } catch (e: Exception) {
-                        SelfHealEngine.appendLog(context, "Service revive blocked: ${e.message}")
-                    }
-                }
-                // Even if OEM killed WatchdogService after swipe-away, still process pending Telegram commands!
-                if (!TelegramBotController.isPolling && SelfHealEngine.isTelegramEnabled(context)) {
-                    TelegramBotController.pollOnceShort(context)
-                }
-            } finally {
-                scheduleNext(context, 30_000L)
-                pending.finish()
+                ContextCompat.startForegroundService(context, Intent(context, WatchdogService::class.java))
+            } catch (e: Exception) {
+                SelfHealEngine.appendLog(context, "Service revive deferred: ${e.message}")
             }
-        }.start()
+        }
+        scheduleNext(context, 30_000L)
     }
 }

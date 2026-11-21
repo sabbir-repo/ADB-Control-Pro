@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -87,6 +88,33 @@ class MainActivity : AppCompatActivity() {
         })
         container.addView(cfgCard)
 
+        // Telegram Bot Command Line Card
+        val tgCard = makeCard()
+        tgCard.addView(TextView(this).apply {
+            text = "🤖 Telegram Bot Command Line"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#10B981"))
+            setPadding(0, 0, 0, 8)
+        })
+        tgCard.addView(makeSwitch("🤖 Enable Telegram Bot (/adb_on, /adb_off, /status)", SelfHealEngine.isTelegramEnabled(this)) { on ->
+            SelfHealEngine.setTelegramEnabled(this, on)
+            restartBotInService()
+            refreshUi()
+        })
+        val etToken = makeInput("Bot Token", SelfHealEngine.getBotToken(this))
+        val etChatId = makeInput("Allowed Chat ID (send /myid to bot to get ID)", SelfHealEngine.getAllowedChatId(this))
+        tgCard.addView(etToken)
+        tgCard.addView(etChatId)
+        tgCard.addView(makeButton("💾 Save Telegram Settings & Restart Bot", "#10B981", "#052E16") {
+            SelfHealEngine.setBotToken(this, etToken.text.toString())
+            SelfHealEngine.setAllowedChatId(this, etChatId.text.toString())
+            restartBotInService()
+            Toast.makeText(this, "✅ Telegram Bot settings saved!", Toast.LENGTH_SHORT).show()
+            refreshUi()
+        })
+        container.addView(tgCard)
+
         // Actions Card
         val actCard = makeCard()
         actCard.addView(makeButton("⚡ Heal & Enable Now", "#10B981", "#052E16") {
@@ -155,6 +183,38 @@ class MainActivity : AppCompatActivity() {
     private fun stopWatchdog() {
         HealAlarmReceiver.cancel(this)
         stopService(Intent(this, WatchdogService::class.java))
+    }
+
+    private fun restartBotInService() {
+        try {
+            val intent = Intent(this, WatchdogService::class.java).apply {
+                action = WatchdogService.ACTION_RESTART_BOT
+            }
+            ContextCompat.startForegroundService(this, intent)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun makeInput(hintText: String, initial: String): EditText {
+        val bg = GradientDrawable().apply {
+            setColor(Color.parseColor("#0B1120"))
+            cornerRadius = 16f
+            setStroke(2, Color.parseColor("#334155"))
+        }
+        return EditText(this).apply {
+            hint = hintText
+            setText(initial)
+            setTextColor(Color.parseColor("#F8FAFC"))
+            setHintTextColor(Color.parseColor("#64748B"))
+            textSize = 13f
+            background = bg
+            setPadding(24, 18, 24, 18)
+            isSingleLine = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { setMargins(0, 8, 0, 8) }
+        }
     }
 
     private fun requestIgnoreBatteryOptimizations() {

@@ -28,6 +28,7 @@ class WatchdogService : Service() {
         private const val CHANNEL_ID = "adb_companion_watchdog"
         private const val NOTIF_ID = 1001
         private const val PERIODIC_MS = 30_000L
+        const val ACTION_RESTART_BOT = "com.adbcontrol.companion.ACTION_RESTART_BOT"
         @Volatile
         var isRunning: Boolean = false
     }
@@ -36,6 +37,7 @@ class WatchdogService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var adbObserver: ContentObserver? = null
     private var sysReceiver: BroadcastReceiver? = null
+    private var telegramBot: TelegramBotController? = null
 
     private val periodicTask = object : Runnable {
         override fun run() {
@@ -54,11 +56,17 @@ class WatchdogService : Service() {
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
+        telegramBot = TelegramBotController(this) {
+            handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
+        }.also { it.start() }
         HealAlarmReceiver.scheduleNext(this, 60_000L)
         handler.postDelayed(periodicTask, PERIODIC_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_RESTART_BOT) {
+            telegramBot?.restart()
+        }
         val st = SelfHealEngine.heal(this, "ServicePing")
         updateNotification(st)
         HealAlarmReceiver.scheduleNext(this, 60_000L)
@@ -77,6 +85,7 @@ class WatchdogService : Service() {
     override fun onDestroy() {
         isRunning = false
         handler.removeCallbacks(periodicTask)
+        telegramBot?.stop()
         unregisterMonitors()
         super.onDestroy()
     }
@@ -211,12 +220,13 @@ class WatchdogService : Service() {
     }
 
     private fun updateNotification(st: HealStatus) {
+        val botOn = SelfHealEngine.isTelegramEnabled(this)
         val txt = when {
             !st.hasPermission -> "Needs 1-time ADB WRITE_SECURE_SETTINGS grant"
+            botOn -> "🤖 Telegram Bot Ready | ADB Wi-Fi: ${if (st.adbWifiEnabled) "🟢 ON" else "🔴 OFF"}"
             st.wifiConnected && st.adbWifiEnabled -> "🟢 Wi-Fi & Wireless Debugging Active"
             !st.wifiEnabled -> "⚠️ Wi-Fi OFF — waiting for Wi-Fi"
-            !st.wifiConnected -> "⏳ Connecting to Wi-Fi..."
-            else -> "🔄 Re-enabling Wireless Debugging..."
+            else -> "⏳ Monitoring Wi-Fi & Wireless Debugging"
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(txt))

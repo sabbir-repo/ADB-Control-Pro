@@ -11,93 +11,192 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * Lightweight zero-dependency Telegram Bot Long-Polling engine.
- * Lets the user send on-demand commands (/adb_on, /adb_off, /status, /wifi_on, /ping, /myid)
- * from Telegram to control Wireless Debugging without keeping it ON 24/7.
+ * Rock-solid, single-instance Telegram Bot Long-Polling engine.
+ * - Singleton lock prevents duplicate `getUpdates` (eliminates HTTP 409 Conflict).
+ * - Explicitly disconnects active HttpURLConnection on stop/restart.
+ * - Exposes `pollOnceShort(context)` so HealAlarmReceiver can still process commands
+ *   even if OEM (Tecno HiOS) kills the foreground service after swipe-away.
  */
-class TelegramBotController(
-    private val context: Context,
-    private val onStateChanged: (() -> Unit)? = null,
-) {
+object TelegramBotController {
     @Volatile
     private var running = false
+    @Volatile
     private var worker: Thread? = null
+    @Volatile
+    private var activeConn: HttpURLConnection? = null
+    private val lifecycleLock = Any()
+    private val pollLock = Any()
 
-    fun start() {
-        if (running) return
-        if (!SelfHealEngine.isTelegramEnabled(context)) return
-        val token = SelfHealEngine.getBotToken(context)
-        if (token.isBlank()) return
+    val isPolling: Boolean
+        get() = running && worker?.isAlive == true
 
-        running = true
-        worker = Thread({ pollLoop() }, "TelegramBotPoller").apply {
-            isDaemon = true
-            start()
+    fun start(context: Context, onStateChanged: (() -> Unit)? = null) {
+        val appCtx = context.applicationContext
+        synchronized(lifecycleLock) {
+            if (isPolling) return
+            if (!SelfHealEngine.isTelegramEnabled(appCtx)) return
+            val token = SelfHealEngine.getBotToken(appCtx)
+            if (token.isBlank()) return
+
+            running = true
+            worker = Thread({ pollLoop(appCtx, onStateChanged) }, "TelegramBotPoller").apply {
+                isDaemon = true
+                start()
+            }
+            SelfHealEngine.appendLog(appCtx, "🤖 Telegram Bot polling started")
         }
-        SelfHealEngine.appendLog(context, "🤖 Telegram Bot polling started")
     }
 
     fun stop() {
-        running = false
-        worker?.interrupt()
-        worker = null
+        synchronized(lifecycleLock) {
+            running = false
+            try {
+                activeConn?.disconnect()
+            } catch (_: Exception) {
+            }
+            activeConn = null
+            worker?.interrupt()
+            worker = null
+        }
     }
 
-    fun restart() {
+    fun restart(context: Context, onStateChanged: (() -> Unit)? = null) {
         stop()
-        start()
+        try {
+            Thread.sleep(250)
+        } catch (_: InterruptedException) {
+        }
+        start(context, onStateChanged)
     }
 
-    private fun pollLoop() {
+    /** Quick test via getMe so user can verify bot token & internet connectivity. */
+    fun testConnection(context: Context): String {
+        val token = SelfHealEngine.getBotToken(context)
+        if (token.isBlank()) return "❌ Bot Token খালি।"
+        return try {
+            val (code, body) = httpGet("https://api.telegram.org/bot$token/getMe", readTimeoutMs = 10_000, trackConn = false)
+            if (code in 200..299 && body != null) {
+                val json = JSONObject(body)
+                val user = json.optJSONObject("result")?.optString("username", "bot") ?: "bot"
+                val msg = "✅ Bot Connected: @$user"
+                SelfHealEngine.appendLog(context, msg)
+                msg
+            } else {
+                val msg = "❌ Telegram HTTP $code"
+                SelfHealEngine.appendLog(context, msg)
+                msg
+            }
+        } catch (e: Exception) {
+            val msg = "❌ Network Error: ${e.message}"
+            SelfHealEngine.appendLog(context, msg)
+            msg
+        }
+    }
+
+    /** Non-blocking short poll (`timeout=0`) called by AlarmReceiver if WatchdogService was killed. */
+    fun pollOnceShort(context: Context): Int {
+        val appCtx = context.applicationContext
+        if (!SelfHealEngine.isTelegramEnabled(appCtx)) return 0
+        val token = SelfHealEngine.getBotToken(appCtx)
+        if (token.isBlank()) return 0
+        synchronized(pollLock) {
+            return try {
+                val offset = SelfHealEngine.getTelegramOffset(appCtx)
+                val (code, body) = httpGet(
+                    "https://api.telegram.org/bot$token/getUpdates?timeout=0&offset=$offset",
+                    readTimeoutMs = 10_000,
+                    trackConn = false,
+                )
+                if (code in 200..299 && body != null) {
+                    processUpdates(appCtx, token, body, null)
+                } else {
+                    0
+                }
+            } catch (_: Exception) {
+                0
+            }
+        }
+    }
+
+    private fun pollLoop(context: Context, onStateChanged: (() -> Unit)?) {
         while (running) {
             if (!SelfHealEngine.isTelegramEnabled(context)) {
-                sleepQuietly(5000)
+                sleepQuietly(4000)
                 continue
             }
             val token = SelfHealEngine.getBotToken(context)
             if (token.isBlank()) {
-                sleepQuietly(5000)
+                sleepQuietly(4000)
                 continue
             }
             try {
                 val offset = SelfHealEngine.getTelegramOffset(context)
-                val urlStr = "https://api.telegram.org/bot$token/getUpdates?timeout=25&offset=$offset"
-                val body = httpGet(urlStr, readTimeoutMs = 35_000)
-                if (body != null) {
-                    val json = JSONObject(body)
-                    if (json.optBoolean("ok", false)) {
-                        val arr = json.optJSONArray("result")
-                        if (arr != null) {
-                            for (i in 0 until arr.length()) {
-                                val upd = arr.getJSONObject(i)
-                                val updId = upd.optLong("update_id", 0L)
-                                if (updId >= offset) {
-                                    SelfHealEngine.setTelegramOffset(context, updId + 1L)
-                                }
-                                val msg = upd.optJSONObject("message") ?: continue
-                                val chat = msg.optJSONObject("chat") ?: continue
-                                val chatId = chat.optLong("id", 0L).toString()
-                                val text = msg.optString("text", "").trim()
-                                if (chatId != "0" && text.isNotEmpty()) {
-                                    handleCommand(token, chatId, text)
-                                }
-                            }
-                        }
+                val urlStr = "https://api.telegram.org/bot$token/getUpdates?timeout=15&offset=$offset"
+                val (code, body) = httpGet(urlStr, readTimeoutMs = 22_000, trackConn = true)
+                if (!running) break
+
+                if (code in 200..299 && body != null) {
+                    synchronized(pollLock) {
+                        processUpdates(context, token, body, onStateChanged)
                     }
+                } else if (code == 409) {
+                    // Another poller briefly existed; back off cleanly
+                    SelfHealEngine.appendLog(context, "⚠️ Telegram 409 Conflict — retrying in 5s")
+                    sleepQuietly(5000)
+                } else if (code > 0) {
+                    SelfHealEngine.appendLog(context, "⚠️ Telegram HTTP $code — retrying in 5s")
+                    sleepQuietly(5000)
+                } else {
+                    sleepQuietly(4000)
                 }
             } catch (_: InterruptedException) {
                 break
             } catch (_: Exception) {
-                // Offline or transient network error — back off gently
-                sleepQuietly(6000)
+                if (running) sleepQuietly(5000)
             }
         }
     }
 
-    private fun handleCommand(token: String, chatId: String, rawText: String) {
+    private fun processUpdates(
+        context: Context,
+        token: String,
+        body: String,
+        onStateChanged: (() -> Unit)?,
+    ): Int {
+        var handled = 0
+        val json = JSONObject(body)
+        if (!json.optBoolean("ok", false)) return 0
+        val arr = json.optJSONArray("result") ?: return 0
+        var offset = SelfHealEngine.getTelegramOffset(context)
+
+        for (i in 0 until arr.length()) {
+            val upd = arr.getJSONObject(i)
+            val updId = upd.optLong("update_id", 0L)
+            if (updId >= offset) {
+                offset = updId + 1L
+                SelfHealEngine.setTelegramOffset(context, offset)
+            }
+            val msg = upd.optJSONObject("message") ?: continue
+            val chat = msg.optJSONObject("chat") ?: continue
+            val chatId = chat.optLong("id", 0L).toString()
+            val text = msg.optString("text", "").trim()
+            if (chatId != "0" && text.isNotEmpty()) {
+                handleCommand(context, token, chatId, text, onStateChanged)
+                handled++
+            }
+        }
+        return handled
+    }
+
+    private fun handleCommand(
+        context: Context,
+        token: String,
+        chatId: String,
+        rawText: String,
+        onStateChanged: (() -> Unit)?,
+    ) {
         val cmd = rawText.split(" ")[0].substringBefore("@").lowercase()
 
-        // /myid and /start always reply with Chat ID so user can lock Allowed Chat ID easily
         if (cmd == "/myid" || cmd == "/start") {
             sendMessage(
                 token,
@@ -162,19 +261,20 @@ class TelegramBotController(
         sendMessage(token, chatId, reply)
     }
 
-    private fun httpGet(urlStr: String, readTimeoutMs: Int): String? {
+    private fun httpGet(urlStr: String, readTimeoutMs: Int, trackConn: Boolean): Pair<Int, String?> {
         val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = readTimeoutMs
         }
+        if (trackConn) activeConn = conn
         return try {
-            if (conn.responseCode in 200..299) {
-                BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { it.readText() }
-            } else {
-                null
-            }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val body = stream?.let { BufferedReader(InputStreamReader(it, Charsets.UTF_8)).use { r -> r.readText() } }
+            code to body
         } finally {
+            if (trackConn && activeConn === conn) activeConn = null
             conn.disconnect()
         }
     }
@@ -200,7 +300,7 @@ class TelegramBotController(
         try {
             Thread.sleep(ms)
         } catch (_: InterruptedException) {
-            running = false
+            // exit or recheck loop condition
         }
     }
 }

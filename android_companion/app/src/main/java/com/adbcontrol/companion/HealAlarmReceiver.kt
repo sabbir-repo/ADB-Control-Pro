@@ -51,14 +51,25 @@ class HealAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (!SelfHealEngine.isMasterEnabled(context)) return
-        SelfHealEngine.heal(context, "AlarmWatchdog")
-        if (!WatchdogService.isRunning) {
+        val pending = goAsync()
+        Thread {
             try {
-                ContextCompat.startForegroundService(context, Intent(context, WatchdogService::class.java))
-            } catch (e: Exception) {
-                SelfHealEngine.appendLog(context, "Revive service skipped: ${e.message}")
+                SelfHealEngine.heal(context, "AlarmWatchdog")
+                if (!WatchdogService.isRunning) {
+                    try {
+                        ContextCompat.startForegroundService(context, Intent(context, WatchdogService::class.java))
+                    } catch (e: Exception) {
+                        SelfHealEngine.appendLog(context, "Service revive blocked: ${e.message}")
+                    }
+                }
+                // Even if OEM killed WatchdogService after swipe-away, still process pending Telegram commands!
+                if (!TelegramBotController.isPolling && SelfHealEngine.isTelegramEnabled(context)) {
+                    TelegramBotController.pollOnceShort(context)
+                }
+            } finally {
+                scheduleNext(context, 30_000L)
+                pending.finish()
             }
-        }
-        scheduleNext(context, 60_000L)
+        }.start()
     }
 }

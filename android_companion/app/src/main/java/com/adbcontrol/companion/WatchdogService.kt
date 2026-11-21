@@ -37,12 +37,16 @@ class WatchdogService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var adbObserver: ContentObserver? = null
     private var sysReceiver: BroadcastReceiver? = null
-    private var telegramBot: TelegramBotController? = null
 
     private val periodicTask = object : Runnable {
         override fun run() {
             if (!isRunning) return
             val st = SelfHealEngine.heal(this@WatchdogService, "Periodic")
+            if (SelfHealEngine.isTelegramEnabled(this@WatchdogService) && !TelegramBotController.isPolling) {
+                TelegramBotController.start(this@WatchdogService) {
+                    handler.post { updateNotification(SelfHealEngine.heal(this@WatchdogService, "TGUpdate")) }
+                }
+            }
             updateNotification(st)
             handler.postDelayed(this, PERIODIC_MS)
         }
@@ -52,24 +56,32 @@ class WatchdogService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Monitoring Wi-Fi & Wireless Debugging..."))
+        startForeground(NOTIF_ID, buildNotification("Monitoring Wi-Fi & Telegram Bot..."))
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
-        telegramBot = TelegramBotController(this) {
+        TelegramBotController.start(this) {
             handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
-        }.also { it.start() }
-        HealAlarmReceiver.scheduleNext(this, 60_000L)
+        }
+        HealAlarmReceiver.scheduleNext(this, 30_000L)
         handler.postDelayed(periodicTask, PERIODIC_MS)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_RESTART_BOT) {
-            telegramBot?.restart()
+            Thread {
+                TelegramBotController.restart(this) {
+                    handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
+                }
+            }.start()
+        } else if (SelfHealEngine.isTelegramEnabled(this) && !TelegramBotController.isPolling) {
+            TelegramBotController.start(this) {
+                handler.post { updateNotification(SelfHealEngine.heal(this, "TGUpdate")) }
+            }
         }
         val st = SelfHealEngine.heal(this, "ServicePing")
         updateNotification(st)
-        HealAlarmReceiver.scheduleNext(this, 60_000L)
+        HealAlarmReceiver.scheduleNext(this, 30_000L)
         return START_STICKY
     }
 
@@ -85,7 +97,7 @@ class WatchdogService : Service() {
     override fun onDestroy() {
         isRunning = false
         handler.removeCallbacks(periodicTask)
-        telegramBot?.stop()
+        TelegramBotController.stop()
         unregisterMonitors()
         super.onDestroy()
     }

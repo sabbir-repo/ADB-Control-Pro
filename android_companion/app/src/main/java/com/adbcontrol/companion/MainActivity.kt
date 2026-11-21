@@ -113,6 +113,15 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "✅ Telegram Bot settings saved!", Toast.LENGTH_SHORT).show()
             refreshUi()
         })
+        tgCard.addView(makeButton("🔌 Test Bot Connection (getMe)", "#3B82F6", "#FFFFFF") {
+            Thread {
+                val res = TelegramBotController.testConnection(this)
+                runOnUiThread {
+                    Toast.makeText(this, res, Toast.LENGTH_SHORT).show()
+                    refreshUi()
+                }
+            }.start()
+        })
         container.addView(tgCard)
 
         // Actions Card

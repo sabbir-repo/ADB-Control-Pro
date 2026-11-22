@@ -23,8 +23,10 @@ class HealWorker(
         if (!SelfHealEngine.isMasterEnabled(applicationContext)) {
             return Result.success()
         }
-        SelfHealEngine.heal(applicationContext, "WorkManager")
+        // Only heal directly if WatchdogService was killed by the OS;
+        // otherwise WatchdogService's ON/OFF signal listener handles everything cleanly.
         if (!WatchdogService.isRunning) {
+            SelfHealEngine.heal(applicationContext, "WorkManager")
             try {
                 ContextCompat.startForegroundService(
                     applicationContext,

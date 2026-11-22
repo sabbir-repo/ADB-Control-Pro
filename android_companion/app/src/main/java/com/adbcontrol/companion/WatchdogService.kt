@@ -34,10 +34,14 @@ class WatchdogService : Service() {
     companion object {
         private const val CHANNEL_ID = "adb_companion_watchdog"
         private const val NOTIF_ID = 1001
-        private const val PERIODIC_MS = 15_000L
+        private const val BEACON_INTERVAL_MS = 30_000L
+        private const val OFF_SIGNAL_DELAY_MS = 10_000L
+        private const val WIFI_CONNECT_DELAY_MS = 3_000L
         private const val BEACON_PORT = 45454
         @Volatile
         var isRunning: Boolean = false
+        @Volatile
+        var isPendingReEnable: Boolean = false
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -45,14 +49,81 @@ class WatchdogService : Service() {
     private var adbObserver: ContentObserver? = null
     private var sysReceiver: BroadcastReceiver? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var pendingReason: String = "Signal"
 
-    private val periodicTask = object : Runnable {
+    private fun readCurrentStatus(summary: String): HealStatus {
+        val hasPerm = SelfHealEngine.hasSecureSettingsPermission(this)
+        val wifiOn = SelfHealEngine.isWifiEnabled(this)
+        val wifiConn = SelfHealEngine.isWifiConnected(this)
+        val adbWifi = SelfHealEngine.isAdbWifiEnabled(this)
+        val bssid = if (wifiConn) SelfHealEngine.getConnectedWifiBssid(this) else ""
+        val trusted = wifiConn && SelfHealEngine.isTrustedWifiConnected(this)
+        return HealStatus(hasPerm, wifiOn, wifiConn, adbWifi, bssid, trusted, summary)
+    }
+
+    /**
+     * One-shot event-driven re-enable task.
+     * Fires ONLY after an OFF / Wi-Fi-connect signal — NEVER polls continuously when ON.
+     */
+    private val reEnableTask = Runnable {
+        isPendingReEnable = false
+        if (!isRunning) return@Runnable
+        if (!SelfHealEngine.isMasterEnabled(this) || !SelfHealEngine.isAutoAdbWifiEnabled(this)) {
+            return@Runnable
+        }
+
+        val current = readCurrentStatus("SignalCheck($pendingReason)")
+        if (!current.wifiConnected || !current.isTrustedWifi) {
+            SelfHealEngine.appendLog(this, "10s check ($pendingReason): not on Trusted Wi-Fi — idle")
+            updateNotification(current)
+            return@Runnable
+        }
+        if (current.adbWifiEnabled) {
+            // Already ON — do nothing and remain completely idle
+            SelfHealEngine.appendLog(this, "10s check ($pendingReason): already ON — idle")
+            updateNotification(current)
+            sendUdpBeacon(current)
+            return@Runnable
+        }
+
+        // Still OFF → turn Wireless Debugging back ON
+        val st = SelfHealEngine.heal(this, "Signal($pendingReason)")
+        updateNotification(st)
+        if (st.adbWifiEnabled) {
+            sendUdpBeacon(st)
+        } else if (st.hasPermission && st.wifiConnected && st.isTrustedWifi) {
+            // OS was still busy tearing down the previous socket; schedule one clean 10s retry
+            scheduleSignalReEnable("Retry-$pendingReason", OFF_SIGNAL_DELAY_MS)
+        }
+    }
+
+    /** Lightweight PC discovery beacon only — never touches Wireless Debugging settings. */
+    private val beaconTask = object : Runnable {
         override fun run() {
             if (!isRunning) return
-            val st = SelfHealEngine.heal(this@WatchdogService, "Periodic")
-            updateNotification(st)
-            if (st.wifiConnected && st.isTrustedWifi) sendUdpBeacon(st)
-            handler.postDelayed(this, PERIODIC_MS)
+            val st = readCurrentStatus("Beacon")
+            if (st.wifiConnected && st.isTrustedWifi && st.adbWifiEnabled) {
+                sendUdpBeacon(st)
+            }
+            handler.postDelayed(this, BEACON_INTERVAL_MS)
+        }
+    }
+
+    private fun scheduleSignalReEnable(reason: String, delayMs: Long) {
+        handler.removeCallbacks(reEnableTask)
+        pendingReason = reason
+        isPendingReEnable = true
+        val sec = (delayMs / 1000L).coerceAtLeast(1L)
+        SelfHealEngine.appendLog(this, "Signal: $reason → checking in ${sec}s...")
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIF_ID, buildNotification("⏳ Wireless Debugging OFF — re-enabling in ${sec}s..."))
+        handler.postDelayed(reEnableTask, delayMs)
+    }
+
+    private fun cancelPendingReEnable() {
+        if (isPendingReEnable) {
+            handler.removeCallbacks(reEnableTask)
+            isPendingReEnable = false
         }
     }
 
@@ -60,15 +131,15 @@ class WatchdogService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Monitoring Trusted Wi-Fi & Wireless Debugging..."))
+        startForeground(NOTIF_ID, buildNotification("Monitoring Trusted Wi-Fi & Wireless Debugging signals..."))
         acquireWakeLock()
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
-        if (st.wifiConnected && st.isTrustedWifi) sendUdpBeacon(st)
+        if (st.wifiConnected && st.isTrustedWifi && st.adbWifiEnabled) sendUdpBeacon(st)
         HealWorker.ensureScheduled(this)
-        HealAlarmReceiver.scheduleNext(this, 30_000L)
-        handler.postDelayed(periodicTask, PERIODIC_MS)
+        HealAlarmReceiver.scheduleNext(this, 60_000L)
+        handler.postDelayed(beaconTask, BEACON_INTERVAL_MS)
     }
 
     private fun sendUdpBeacon(st: HealStatus) {
@@ -97,10 +168,12 @@ class WatchdogService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val st = SelfHealEngine.heal(this, "ServicePing")
-        updateNotification(st)
-        if (st.wifiConnected && st.isTrustedWifi) sendUdpBeacon(st)
-        HealAlarmReceiver.scheduleNext(this, 30_000L)
+        if (!isPendingReEnable) {
+            val st = SelfHealEngine.heal(this, "ServicePing")
+            updateNotification(st)
+            if (st.wifiConnected && st.isTrustedWifi && st.adbWifiEnabled) sendUdpBeacon(st)
+        }
+        HealAlarmReceiver.scheduleNext(this, 60_000L)
         return START_STICKY
     }
 
@@ -114,6 +187,7 @@ class WatchdogService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        isPendingReEnable = false
         handler.removeCallbacksAndMessages(null)
         unregisterMonitors()
         releaseWakeLock()
@@ -143,20 +217,6 @@ class WatchdogService : Service() {
         wakeLock = null
     }
 
-    /** Multi-stage fast retry so Wi-Fi reconnects / manual OFF toggles heal and beacon quickly on Trusted Wi-Fi. */
-    private fun scheduleFastHealRetries(tag: String, sendBeacon: Boolean = false) {
-        for (delayMs in longArrayOf(1000L, 3500L, 8000L)) {
-            handler.postDelayed({
-                if (!isRunning) return@postDelayed
-                val st = SelfHealEngine.heal(this@WatchdogService, tag)
-                updateNotification(st)
-                if (sendBeacon && st.wifiConnected && st.isTrustedWifi) {
-                    sendUdpBeacon(st)
-                }
-            }, delayMs)
-        }
-    }
-
     private fun createWifiCallback(): ConnectivityManager.NetworkCallback {
         val handleCaps: (NetworkCapabilities) -> Unit = { caps ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -168,13 +228,27 @@ class WatchdogService : Service() {
             }
         }
         val handleAvailable: () -> Unit = {
-            scheduleFastHealRetries("Wi-Fi Connected", sendBeacon = true)
+            handler.post {
+                if (SelfHealEngine.isMasterEnabled(this@WatchdogService) &&
+                    SelfHealEngine.isAutoAdbWifiEnabled(this@WatchdogService) &&
+                    !SelfHealEngine.isAdbWifiEnabled(this@WatchdogService)
+                ) {
+                    scheduleSignalReEnable("Wi-Fi Connected", WIFI_CONNECT_DELAY_MS)
+                } else {
+                    val st = readCurrentStatus("Wi-Fi Connected")
+                    updateNotification(st)
+                    if (st.wifiConnected && st.isTrustedWifi && st.adbWifiEnabled) {
+                        sendUdpBeacon(st)
+                    }
+                }
+            }
         }
         val handleLost: () -> Unit = {
             SelfHealEngine.cachedNetworkBssid = null
             handler.post {
-                SelfHealEngine.appendLog(this@WatchdogService, "Wi-Fi lost — waiting for Trusted Wi-Fi")
-                updateNotification(SelfHealEngine.heal(this@WatchdogService, "Wi-Fi Lost"))
+                cancelPendingReEnable()
+                SelfHealEngine.appendLog(this@WatchdogService, "Signal: Wi-Fi lost — waiting for Trusted Wi-Fi")
+                updateNotification(readCurrentStatus("Wi-Fi Lost"))
             }
         }
 
@@ -196,7 +270,7 @@ class WatchdogService : Service() {
     }
 
     private fun registerMonitors() {
-        // 1. Instant Wi-Fi connect callback (with FLAG_INCLUDE_LOCATION_INFO on Android 12+)
+        // 1. Instant Wi-Fi connect/disconnect signal (with FLAG_INCLUDE_LOCATION_INFO on Android 12+)
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val req = NetworkRequest.Builder()
@@ -208,15 +282,26 @@ class WatchdogService : Service() {
         } catch (_: Exception) {
         }
 
-        // 2. Instant ContentObserver on `adb_wifi_enabled` with multi-retry (Trusted Wi-Fi only)
+        // 2. Event-driven ContentObserver on `adb_wifi_enabled` (listens to BOTH ON and OFF signals)
         try {
             val obs = object : ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean) {
-                    if (SelfHealEngine.isAutoAdbWifiEnabled(this@WatchdogService) &&
-                        !SelfHealEngine.isAdbWifiEnabled(this@WatchdogService) &&
-                        SelfHealEngine.isTrustedWifiConnected(this@WatchdogService)
+                    if (!SelfHealEngine.isMasterEnabled(this@WatchdogService) ||
+                        !SelfHealEngine.isAutoAdbWifiEnabled(this@WatchdogService)
                     ) {
-                        scheduleFastHealRetries("ADB Wi-Fi OFF")
+                        return
+                    }
+                    val isOn = SelfHealEngine.isAdbWifiEnabled(this@WatchdogService)
+                    if (isOn) {
+                        // ON signal → cancel any pending timer and stay idle
+                        cancelPendingReEnable()
+                        SelfHealEngine.appendLog(this@WatchdogService, "Signal: Wireless Debugging ON")
+                        val st = readCurrentStatus("Wireless Debugging ON")
+                        updateNotification(st)
+                        if (st.wifiConnected && st.isTrustedWifi) sendUdpBeacon(st)
+                    } else if (SelfHealEngine.isTrustedWifiConnected(this@WatchdogService)) {
+                        // OFF signal on Trusted Wi-Fi → schedule ONE clean 10-second check-and-enable
+                        scheduleSignalReEnable("ADB Wi-Fi OFF", OFF_SIGNAL_DELAY_MS)
                     }
                 }
             }
@@ -233,8 +318,19 @@ class WatchdogService : Service() {
         try {
             val rx = object : BroadcastReceiver() {
                 override fun onReceive(ctx: Context, intent: Intent) {
-                    val tag = if (intent.action == Intent.ACTION_USER_PRESENT) "Unlock" else "Wi-Fi State"
-                    scheduleFastHealRetries(tag, sendBeacon = true)
+                    if (!SelfHealEngine.isMasterEnabled(this@WatchdogService) ||
+                        !SelfHealEngine.isAutoAdbWifiEnabled(this@WatchdogService)
+                    ) {
+                        return
+                    }
+                    // Only act if currently OFF on Trusted Wi-Fi and no signal timer is already pending
+                    if (!isPendingReEnable &&
+                        SelfHealEngine.isTrustedWifiConnected(this@WatchdogService) &&
+                        !SelfHealEngine.isAdbWifiEnabled(this@WatchdogService)
+                    ) {
+                        val tag = if (intent.action == Intent.ACTION_USER_PRESENT) "Unlock" else "Wi-Fi State"
+                        scheduleSignalReEnable(tag, WIFI_CONNECT_DELAY_MS)
+                    }
                 }
             }
             val filter = IntentFilter().apply {

@@ -14,7 +14,7 @@ class HealAlarmReceiver : BroadcastReceiver() {
         private const val ACTION_HEAL_TICK = "com.adbcontrol.companion.ACTION_HEAL_TICK"
         private const val REQ_CODE = 7701
 
-        fun scheduleNext(context: Context, delayMs: Long = 30_000L) {
+        fun scheduleNext(context: Context, delayMs: Long = 60_000L) {
             if (!SelfHealEngine.isMasterEnabled(context)) return
             val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val intent = Intent(context, HealAlarmReceiver::class.java).apply {
@@ -51,14 +51,16 @@ class HealAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (!SelfHealEngine.isMasterEnabled(context)) return
-        SelfHealEngine.heal(context, "AlarmWatchdog")
+        // Only heal/revive if WatchdogService was killed by the OS.
+        // While WatchdogService is running, its ON/OFF signal listener handles Wireless Debugging cleanly.
         if (!WatchdogService.isRunning) {
+            SelfHealEngine.heal(context, "AlarmRevive")
             try {
                 ContextCompat.startForegroundService(context, Intent(context, WatchdogService::class.java))
             } catch (e: Exception) {
                 SelfHealEngine.appendLog(context, "Service revive deferred: ${e.message}")
             }
         }
-        scheduleNext(context, 30_000L)
+        scheduleNext(context, 60_000L)
     }
 }

@@ -1281,9 +1281,6 @@ class ADBWebAPI:
             pkg = "com.adbcontrol.companion"
             cmds = [
                 f"pm grant {pkg} android.permission.WRITE_SECURE_SETTINGS",
-                f"pm grant {pkg} android.permission.ACCESS_FINE_LOCATION",
-                f"pm grant {pkg} android.permission.ACCESS_COARSE_LOCATION",
-                f"pm grant {pkg} android.permission.ACCESS_BACKGROUND_LOCATION",
                 f"dumpsys deviceidle whitelist +{pkg}",
                 f"cmd appops set {pkg} RUN_IN_BACKGROUND allow",
                 f"cmd appops set {pkg} RUN_ANY_IN_BACKGROUND allow",

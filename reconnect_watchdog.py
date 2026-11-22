@@ -85,6 +85,8 @@ class AutoReconnectWatchdog:
 
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._udp_thread: Optional[threading.Thread] = None
+        self._udp_sock: Optional[socket.socket] = None
         self._zc = None
         self._mdns_targets: List[str] = []
         self._lock = threading.Lock()
@@ -141,10 +143,11 @@ class AutoReconnectWatchdog:
         self._running = True
         self._keep_alive = bool(keep_alive)
         self._start_mdns()
+        self._start_udp_beacon_listener()
 
         self._thread = threading.Thread(target=self._watch_loop, daemon=True)
         self._thread.start()
-        mdns_lbl = "mDNS + 5555" if self._zc is not None else "Port 5555"
+        mdns_lbl = "mDNS + UDP + 5555" if self._zc is not None else "UDP + Port 5555"
         msg = f"🛡️ Watchdog চালু ({mdns_lbl}" + (" + Heartbeat)" if keep_alive else ")")
         self._emit(msg, msg)
         return msg
@@ -153,8 +156,49 @@ class AutoReconnectWatchdog:
         self._running = False
         self._stop_event.set()
         self._stop_mdns()
+        if self._udp_sock is not None:
+            try:
+                self._udp_sock.close()
+            except Exception:
+                pass
+            self._udp_sock = None
         self._emit("Idle", "⏹️ Auto-Reconnect Watchdog বন্ধ করা হয়েছে।")
         return "⏹️ Watchdog বন্ধ করা হয়েছে।"
+
+    def _start_udp_beacon_listener(self, port: int = 45454) -> None:
+        """Listens for Phone Companion UDP beacons so PC learns new phone IP even if router blocks mDNS."""
+        def loop():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(("", port))
+                sock.settimeout(1.5)
+                self._udp_sock = sock
+            except Exception:
+                return
+            while not self._stop_event.is_set():
+                try:
+                    data, addr = sock.recvfrom(1024)
+                    payload = json.loads(data.decode("utf-8", errors="ignore"))
+                    if payload.get("app") != "adb_companion":
+                        continue
+                    phone_ip = (payload.get("ip") or addr[0] or "").strip()
+                    if phone_ip:
+                        self.remember_device("", wifi_ip=phone_ip)
+                        if not self._is_current_online():
+                            self._try_connect_target(f"{phone_ip}:5555", source="UDP Beacon")
+                except socket.timeout:
+                    continue
+                except Exception:
+                    if self._stop_event.is_set():
+                        break
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+        self._udp_thread = threading.Thread(target=loop, daemon=True)
+        self._udp_thread.start()
 
     def _start_mdns(self) -> None:
         self._stop_mdns()

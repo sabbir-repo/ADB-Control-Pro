@@ -5,6 +5,7 @@ reconnect_state.json
 # Generated media & caches
 screenshots/
 recordings/
+*.apk
 __pycache__/
 *.py[cod]
 .venv/

@@ -145,6 +145,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startWatchdog() {
+        HealWorker.ensureScheduled(this)
         try {
             ContextCompat.startForegroundService(this, Intent(this, WatchdogService::class.java))
         } catch (_: Exception) {
@@ -152,6 +153,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopWatchdog() {
+        HealWorker.cancel(this)
         HealAlarmReceiver.cancel(this)
         stopService(Intent(this, WatchdogService::class.java))
     }

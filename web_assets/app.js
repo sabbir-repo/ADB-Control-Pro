@@ -832,6 +832,15 @@ async function scanConnect5555() {
   if (res) refreshDevices();
 }
 
+async function installCompanionApk() {
+  toast("📲 Companion APK ইনস্টল ও সেটআপ হচ্ছে...");
+  await callApi("install_companion_apk", [], "Install Companion APK");
+}
+
+async function setupCompanionPermissions() {
+  await callApi("setup_companion_permissions", [], "Optimize Companion");
+}
+
 /* ─── Startup Bootstrap ─── */
 window.addEventListener("pywebviewready", async () => {
   const savedTheme = localStorage.getItem("adb_theme") || "emerald";
@@ -841,6 +850,8 @@ window.addEventListener("pywebviewready", async () => {
   logConsole("⚡ ADB Control Pro", "Ultra-Modern PyWebView UI Ready!");
   await refreshDevices();
   await loadMacros();
+  // Auto-Start Auto-Reconnect Watchdog on launch
+  await toggleWatchdog();
 
   // Gentle live HUD telemetry refresh every 12s
   state.telemetryTimer = setInterval(() => {

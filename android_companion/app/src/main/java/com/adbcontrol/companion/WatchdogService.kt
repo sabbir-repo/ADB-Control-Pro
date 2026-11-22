@@ -22,6 +22,10 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 
 class WatchdogService : Service() {
 
@@ -29,6 +33,7 @@ class WatchdogService : Service() {
         private const val CHANNEL_ID = "adb_companion_watchdog"
         private const val NOTIF_ID = 1001
         private const val PERIODIC_MS = 15_000L
+        private const val BEACON_PORT = 45454
         @Volatile
         var isRunning: Boolean = false
     }
@@ -44,6 +49,7 @@ class WatchdogService : Service() {
             if (!isRunning) return
             val st = SelfHealEngine.heal(this@WatchdogService, "Periodic")
             updateNotification(st)
+            if (st.wifiConnected) sendUdpBeacon(st)
             handler.postDelayed(this, PERIODIC_MS)
         }
     }
@@ -57,8 +63,31 @@ class WatchdogService : Service() {
         registerMonitors()
         val st = SelfHealEngine.heal(this, "ServiceStart")
         updateNotification(st)
+        if (st.wifiConnected) sendUdpBeacon(st)
+        HealWorker.ensureScheduled(this)
         HealAlarmReceiver.scheduleNext(this, 30_000L)
         handler.postDelayed(periodicTask, PERIODIC_MS)
+    }
+
+    private fun sendUdpBeacon(st: HealStatus) {
+        Thread {
+            try {
+                val ip = SelfHealEngine.getWifiIpAddress(this)
+                if (ip == "N/A") return@Thread
+                val payload = JSONObject().apply {
+                    put("app", "adb_companion")
+                    put("model", Build.MODEL)
+                    put("ip", ip)
+                    put("adb_wifi", st.adbWifiEnabled)
+                }.toString().toByteArray(Charsets.UTF_8)
+                DatagramSocket().use { sock ->
+                    sock.broadcast = true
+                    val pkt = DatagramPacket(payload, payload.size, InetAddress.getByName("255.255.255.255"), BEACON_PORT)
+                    sock.send(pkt)
+                }
+            } catch (_: Exception) {
+            }
+        }.start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

@@ -289,7 +289,7 @@ class ADBWebAPI:
     def uninstall_app(self, pkg: str) -> dict:
         try:
             self._require_device()
-            out = self._adb.uninstall(pkg)
+            out = self._adb.uninstall_app(pkg)
             return _ok(out, f"Uninstalled {pkg}")
         except Exception as e:
             return _err(e)
@@ -301,7 +301,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            paths = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("APK Files (*.apk)",))
+            paths = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=("APK Files (*.apk)",))
             if not paths:
                 return _ok(None, "Cancelled")
             apk_path = paths[0]
@@ -363,7 +363,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            folders = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            folders = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             if not folders:
                 return _ok(None, "Cancelled")
             save_dir = folders[0]
@@ -381,7 +381,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            files = self._window.create_file_dialog(webview.OPEN_DIALOG)
+            files = self._window.create_file_dialog(webview.FileDialog.OPEN)
             if not files:
                 return _ok(None, "Cancelled")
             local_file = files[0]
@@ -393,6 +393,29 @@ class ADBWebAPI:
         except Exception as e:
             return _err(e)
 
+    @staticmethod
+    def _copy_image_to_clipboard(image_path: str) -> bool:
+        if os.name != "nt":
+            return False
+        abs_path = os.path.abspath(image_path).replace("'", "''")
+        ps_cmd = (
+            "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+            f"$img = [System.Drawing.Image]::FromFile('{abs_path}'); "
+            "[System.Windows.Forms.Clipboard]::SetImage($img); "
+            "$img.Dispose()"
+        )
+        try:
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            return proc.returncode == 0
+        except Exception:
+            return False
+
     def take_screenshot(self) -> dict:
         try:
             self._require_device()
@@ -401,9 +424,14 @@ class ADBWebAPI:
             fname = f"shot_{time.strftime('%Y%m%d_%H%M%S')}.png"
             local_path = os.path.join(shots_dir, fname)
             self._adb.screenshot(local_path)
+            copied = self._copy_image_to_clipboard(local_path)
             with open(local_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("ascii")
-            return _ok({"path": local_path, "filename": fname, "data_url": f"data:image/png;base64,{b64}"}, f"স্ক্রিনশট সেভ হয়েছে: {fname}")
+            msg = f"📸 স্ক্রিনশট সেভ ও পিসি ক্লিপবোর্ডে কপি হয়েছে: {fname}" if copied else f"📸 স্ক্রিনশট সেভ হয়েছে: {fname}"
+            return _ok(
+                {"path": local_path, "filename": fname, "data_url": f"data:image/png;base64,{b64}", "copied": copied},
+                msg,
+            )
         except Exception as e:
             return _err(e)
 
@@ -754,7 +782,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            folders = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            folders = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             if not folders:
                 return _ok(None, "Cancelled")
             folder = folders[0]
@@ -803,7 +831,7 @@ class ADBWebAPI:
             if not apk_remote:
                 raise ADBError(f"APK পাথ পাওয়া যায়নি: {pkg}")
 
-            folders = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            folders = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             if not folders:
                 return _ok(None, "Cancelled")
             dst = os.path.join(folders[0], f"{pkg.strip()}.apk")
@@ -850,7 +878,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            folders = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            folders = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             if not folders:
                 return _ok(None, "Cancelled")
             local_dir = folders[0]
@@ -875,7 +903,7 @@ class ADBWebAPI:
                 raise ADBError("Window ready নয়।")
             import webview
 
-            folders = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            folders = self._window.create_file_dialog(webview.FileDialog.FOLDER)
             if not folders:
                 return _ok({"active": False}, "Cancelled")
             local_dir = folders[0]
@@ -1188,7 +1216,7 @@ class ADBWebAPI:
             import webview
 
             path = self._window.create_file_dialog(
-                webview.SAVE_DIALOG,
+                webview.FileDialog.SAVE,
                 save_filename=f"adb_console_{time.strftime('%Y%m%d_%H%M%S')}.txt",
             )
             if not path:
@@ -1243,6 +1271,53 @@ class ADBWebAPI:
             if not connected:
                 raise ADBError(f"পাওয়া গেছে ({', '.join(found)}), কিন্তু adb connect সফল হয়নি।")
             return _ok(connected, f"🟢 স্ক্যান করে কানেক্ট হয়েছে: {', '.join(connected)}")
+        except Exception as e:
+            return _err(e)
+
+    def setup_companion_permissions(self) -> dict:
+        """1-Click grants WRITE_SECURE_SETTINGS and whitelists ADB Companion from Android Doze/Freezer."""
+        try:
+            self._require_device()
+            pkg = "com.adbcontrol.companion"
+            cmds = [
+                f"pm grant {pkg} android.permission.WRITE_SECURE_SETTINGS",
+                f"dumpsys deviceidle whitelist +{pkg}",
+                f"cmd appops set {pkg} RUN_IN_BACKGROUND allow",
+                f"cmd appops set {pkg} RUN_ANY_IN_BACKGROUND allow",
+                f"cmd appops set {pkg} WAKE_LOCK allow",
+            ]
+            logs = []
+            for c in cmds:
+                out = self._adb.shell(c, check=False, timeout=10).strip()
+                logs.append(f"$ {c}" + (f"\n  {out}" if out else " -> OK"))
+            return _ok("\n".join(logs), "🛠️ Companion পারমিশন ও Whitelist ১-ক্লিকে সম্পন্ন!")
+        except Exception as e:
+            return _err(e)
+
+    def install_companion_apk(self) -> dict:
+        """1-Click installs `app-debug.apk` from project root (or picker), grants permissions, and launches it."""
+        try:
+            self._require_device()
+            candidates = [
+                os.path.join(BASE_DIR, "app-debug.apk"),
+                os.path.join(BASE_DIR, "android_companion", "app", "build", "outputs", "apk", "debug", "app-debug.apk"),
+            ]
+            apk_path = next((p for p in candidates if os.path.exists(p)), None)
+            if not apk_path:
+                if not self._window:
+                    raise ADBError("প্রজেক্ট ফোল্ডারে app-debug.apk পাওয়া যায়নি।")
+                import webview
+
+                paths = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=("APK Files (*.apk)",))
+                if not paths:
+                    return _ok(None, "Cancelled")
+                apk_path = paths[0]
+
+            inst_out = self._adb.install_apk(apk_path)
+            setup_res = self.setup_companion_permissions()
+            self._adb.launch_app("com.adbcontrol.companion")
+            summary = f"APK: {os.path.basename(apk_path)}\n{inst_out}\n\n{setup_res.get('data', '')}"
+            return _ok(summary, "📲 Companion APK ইনস্টল, Whitelist এবং লঞ্চ সম্পন্ন!")
         except Exception as e:
             return _err(e)
 

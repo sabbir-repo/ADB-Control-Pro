@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import secrets
 import threading
@@ -73,6 +73,7 @@ class ADB:
                 errors="replace",      # <-- আননোন ক্যারেক্টার থাকলে ক্র্যাশ করবে না
                 timeout=effective_timeout,
                 check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except FileNotFoundError as e:
             raise ADBError("adb পাওয়া যায়নি। Android Platform Tools install করে PATH-এ যোগ করুন।") from e
@@ -88,6 +89,32 @@ class ADB:
         return self.run(["shell", cmd], check=check, timeout=timeout)
 
     @staticmethod
+    def run_global(args: List[str], check: bool = True, timeout: Optional[int] = 30) -> str:
+        """Runs a server-level ADB command WITHOUT `-s <serial>` (safe for multi-device)."""
+        cmd = ["adb"] + args
+        effective_timeout = None if timeout == 0 else timeout
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=effective_timeout,
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except FileNotFoundError as e:
+            raise ADBError("adb পাওয়া যায়নি। Android Platform Tools install করে PATH-এ যোগ করুন।") from e
+        except subprocess.TimeoutExpired as e:
+            raise ADBError(f"Command timeout: {' '.join(cmd)}") from e
+
+        out = (proc.stdout or proc.stderr or "").strip()
+        if check and proc.returncode != 0:
+            raise ADBError(out or f"ADB command failed: {' '.join(cmd)}")
+        return out
+
+    @staticmethod
     def list_devices() -> List[dict]:
         try:
             proc = subprocess.run(
@@ -96,21 +123,45 @@ class ADB:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                timeout=15,
                 check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except FileNotFoundError as e:
             raise ADBError("adb পাওয়া যায়নি।") from e
+        except subprocess.TimeoutExpired as e:
+            raise ADBError("adb devices কমান্ড টাইমআউট হয়েছে।") from e
 
         devices = []
-        for line in proc.stdout.splitlines()[1:]:
-            line = line.strip()
+        in_device_section = False
+        for raw_line in (proc.stdout or "").splitlines():
+            line = raw_line.strip()
             if not line:
                 continue
+            if not in_device_section:
+                if line.lower().startswith("list of devices attached"):
+                    in_device_section = True
+                continue
+            # Ignore any trailing daemon/status messages starting with '*'
+            if line.startswith("*"):
+                continue
             parts = line.split()
+            if len(parts) < 2:
+                continue
+            serial = parts[0]
+            state = parts[1]
+            details = " ".join(parts[2:]) if len(parts) > 2 else ""
+            model = ""
+            for tok in parts[2:]:
+                if tok.startswith("model:"):
+                    model = tok.split(":", 1)[1].replace("_", " ").strip()
+                    break
             devices.append({
-                "serial": parts[0],
-                "state": parts[1] if len(parts) > 1 else "unknown",
-                "details": " ".join(parts[2:]) if len(parts) > 2 else "",
+                "serial": serial,
+                "state": state,
+                "details": details,
+                "model": model,
+                "connection": "Wi-Fi" if ":" in serial else "USB",
             })
         return devices
 
@@ -118,10 +169,10 @@ class ADB:
         return self.run(["reconnect"], check=False)
 
     def disconnect(self, target: Optional[str] = None) -> str:
-        return self.run(["disconnect"] + ([target] if target else []), check=False)
+        return ADB.run_global(["disconnect"] + ([target] if target else []), check=False)
 
     def connect(self, target: str) -> str:
-        return self.run(["connect", target], check=False)
+        return ADB.run_global(["connect", target], check=False)
 
     def wait(self) -> str:
         return self.run(["wait-for-device"], timeout=max(self.timeout, 120))
@@ -290,6 +341,7 @@ class ADB:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except FileNotFoundError as e:
             raise ADBError("adb পাওয়া যায়নি। Android Platform Tools install করে PATH-এ যোগ করুন।") from e
@@ -342,6 +394,7 @@ class ADB:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except FileNotFoundError as e:
             raise ADBError("adb পাওয়া যায়নি। Android Platform Tools install করে PATH-এ যোগ করুন।") from e
@@ -373,11 +426,188 @@ class ADB:
     def ls(self, remote_path: str) -> str:
         return self.shell(f"ls -la {shlex.quote(remote_path)}", check=False)
 
-    def mkdir(self, remote_path: str) -> str:
-        return self.shell(f"mkdir -p {shlex.quote(remote_path)}")
+    # -------- Root (su) Core Helpers --------
+    CRITICAL_SYSTEM_PACKAGES = frozenset(
+        {
+            "android",
+            "com.android.systemui",
+            "com.android.settings",
+            "com.android.phone",
+            "com.android.shell",
+            "com.android.providers.settings",
+            "com.android.providers.telephony",
+            "com.topjohnwu.magisk",
+            "com.sec.android.app.launcher",
+        }
+    )
 
-    def rm(self, remote_path: str) -> str:
-        return self.shell(f"rm -rf {shlex.quote(remote_path)}")
+    _PROTECTED_RM_PATHS = frozenset(
+        {"/", "/system", "/data", "/data/data", "/data/app", "/vendor", "/product", "/proc", "/dev", "/sys", "/sdcard"}
+    )
+
+    @classmethod
+    def _assert_safe_rm_path(cls, remote_path: str) -> str:
+        clean = (remote_path or "").strip()
+        if clean != "/":
+            clean = clean.rstrip("/")
+        if not clean or clean in cls._PROTECTED_RM_PATHS:
+            raise ADBError(f"নিরাপত্তার কারণে সিস্টেমের মূল পাথ '{clean or '/'}' ডিলিট করা ব্লক করা হয়েছে।")
+        return clean
+
+    def has_root(self, timeout: int = 4) -> bool:
+        """Returns True if working `su` root (uid=0) is granted to ADB shell without blocking."""
+        try:
+            out = self.shell("timeout 3 su -c id 2>/dev/null || su -c id 2>/dev/null", check=False, timeout=timeout)
+            return "uid=0" in (out or "")
+        except Exception:
+            return False
+
+    def root_status(self) -> dict:
+        """Returns detailed Root / Magisk / Bootloader / SELinux status in one shell round-trip."""
+        raw = self.shell(
+            "echo '__SU__'; which su 2>/dev/null; "
+            "echo '__SUV__'; su -v 2>/dev/null; "
+            "echo '__MAG__'; magisk -v 2>/dev/null; "
+            "echo '__ID__'; timeout 3 su -c id 2>/dev/null; "
+            "echo '__SE__'; getenforce 2>/dev/null; "
+            "echo '__LOCK__'; getprop ro.boot.flash.locked",
+            check=False,
+            timeout=6,
+        )
+
+        def _sec(tag: str) -> str:
+            marker = f"__{tag}__"
+            if marker not in (raw or ""):
+                return ""
+            return raw.split(marker, 1)[1].split("__", 1)[0].strip()
+
+        su_path = _sec("SU")
+        su_ver = _sec("SUV")
+        mag_ver = _sec("MAG")
+        uid_out = _sec("ID")
+        selinux = _sec("SE")
+        locked = _sec("LOCK")
+        granted = "uid=0" in uid_out
+        return {
+            "rooted": granted,
+            "su_present": bool(su_path),
+            "su_path": su_path,
+            "su_version": su_ver,
+            "magisk_version": mag_ver,
+            "uid": uid_out,
+            "selinux": selinux,
+            "bootloader_unlocked": locked == "0",
+        }
+
+    def root_shell(self, command: str, check: bool = True, timeout: Optional[int] = None) -> str:
+        """Executes a command via `su -c` on a rooted device."""
+        cmd = (command or "").strip()
+        if not cmd:
+            raise ADBError("Root কমান্ড খালি।")
+        if not self.has_root():
+            raise ADBError(
+                "এই ডিভাইসে Root (`su`) অ্যাক্সেস পাওয়া যায়নি।\n"
+                "ডিভাইস রুটেড হলে ফোনের Magisk অ্যাপে 'Shell'-কে Superuser পারমিশন (Grant) দিন।"
+            )
+        return self.shell(f"su -c {shlex.quote(cmd)}", check=check, timeout=timeout)
+
+    def _read_root_sqlite(self, remote_db_paths: List[str], sql: str) -> List[tuple]:
+        """
+        Safely copies a protected SQLite DB (+ WAL/SHM if present) via `su -c` to a temporary
+        PC directory, queries it using Python's built-in `sqlite3` (no phone sqlite3 binary needed!),
+        and cleans up all temporary files immediately.
+        """
+        import sqlite3
+        import tempfile
+
+        if not self.has_root():
+            return []
+        probe_cmd = " || ".join(f"[ -f {shlex.quote(p)} ] && echo {shlex.quote(p)}" for p in remote_db_paths)
+        found = self.root_shell(probe_cmd, check=False, timeout=6).strip()
+        db_path = next((ln.strip() for ln in found.splitlines() if ln.strip().startswith("/")), "")
+        if not db_path:
+            return []
+
+        stamp = f"{int(time.time())}_{secrets.token_hex(3)}"
+        stage_dir = f"/data/local/tmp/__adb_sq_{stamp}"
+        base_name = os.path.basename(db_path)
+        try:
+            copy_cmd = (
+                f"mkdir -p {stage_dir} && "
+                f"cp {shlex.quote(db_path)} {stage_dir}/{shlex.quote(base_name)} && "
+                f"([ -f {shlex.quote(db_path + '-wal')} ] && cp {shlex.quote(db_path + '-wal')} {stage_dir}/{shlex.quote(base_name + '-wal')} || true) && "
+                f"([ -f {shlex.quote(db_path + '-shm')} ] && cp {shlex.quote(db_path + '-shm')} {stage_dir}/{shlex.quote(base_name + '-shm')} || true) && "
+                f"chmod -R 644 {stage_dir}/* 2>/dev/null; chmod 755 {stage_dir}"
+            )
+            self.root_shell(copy_cmd, check=False, timeout=10)
+            with tempfile.TemporaryDirectory() as td:
+                self.pull(stage_dir, td)
+                local_db = os.path.join(td, os.path.basename(stage_dir), base_name)
+                if not os.path.exists(local_db):
+                    local_db = os.path.join(td, base_name)
+                if not os.path.exists(local_db):
+                    return []
+                conn = sqlite3.connect(f"file:{local_db}?mode=ro", uri=True)
+                try:
+                    cur = conn.execute(sql)
+                    return cur.fetchall()
+                finally:
+                    conn.close()
+        except Exception:
+            return []
+        finally:
+            self.root_shell(f"rm -rf {stage_dir}", check=False, timeout=5)
+
+    def pull_root(
+        self,
+        remote_path: str,
+        local_path: str,
+        progress_callback: Optional[Callable[[int, int, float, float], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> str:
+        """Pulls a root-protected file/folder by staging a readable copy in /data/local/tmp."""
+        clean = (remote_path or "").strip().rstrip("/") or "/"
+        base = os.path.basename(clean) or "root_item"
+        stamp = f"{int(time.time())}_{secrets.token_hex(3)}"
+        stage_dir = f"/data/local/tmp/__adb_rpull_{stamp}"
+        stage_item = f"{stage_dir}/{base}"
+        try:
+            self.root_shell(
+                f"mkdir -p {stage_dir} && cp -r {shlex.quote(clean)} {shlex.quote(stage_item)} && chmod -R a+rX {stage_dir}",
+                check=True,
+                timeout=30,
+            )
+            return self.pull(stage_item, local_path, progress_callback=progress_callback, cancel_event=cancel_event)
+        finally:
+            self.root_shell(f"rm -rf {stage_dir}", check=False, timeout=6)
+
+    def push_root(
+        self,
+        local_path: str,
+        remote_path: str,
+        progress_callback: Optional[Callable[[int, int, float, float], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> str:
+        """Pushes a local file to a root-protected remote destination via /data/local/tmp."""
+        base = os.path.basename(local_path) or "upload.bin"
+        stamp = f"{int(time.time())}_{secrets.token_hex(3)}"
+        tmp_remote = f"/data/local/tmp/__adb_rpush_{stamp}_{base}"
+        try:
+            out = self.push(local_path, tmp_remote, progress_callback=progress_callback, cancel_event=cancel_event)
+            self.root_shell(f"mv {shlex.quote(tmp_remote)} {shlex.quote(remote_path)}", check=True, timeout=15)
+            return out
+        except Exception:
+            self.shell(f"rm -f {shlex.quote(tmp_remote)}", check=False, timeout=5)
+            raise
+
+    def mkdir(self, remote_path: str, use_root: bool = False) -> str:
+        cmd = f"mkdir -p {shlex.quote(remote_path)}"
+        return self.root_shell(cmd) if use_root else self.shell(cmd)
+
+    def rm(self, remote_path: str, use_root: bool = False) -> str:
+        safe = self._assert_safe_rm_path(remote_path)
+        cmd = f"rm -rf {shlex.quote(safe)}"
+        return self.root_shell(cmd) if use_root else self.shell(cmd)
 
     def install_apk(self, apk_path: str) -> str:
         return self.run(["install", "-r", apk_path], timeout=0)
@@ -447,6 +677,87 @@ class ADB:
 
         result.sort(key=lambda item: (item["name"].lower(), item["package"].lower()))
         return result
+
+    def list_apps_by_mode(self, mode: str = "launcher") -> List[dict]:
+        """
+        Lists apps by category (`launcher`, `user`, `system`, `disabled`) with live Frozen/Disabled status.
+        """
+        m = (mode or "launcher").strip().lower()
+        dis_raw = self.shell("pm list packages -d", check=False, timeout=10)
+        disabled_set = {
+            ln.split("package:", 1)[1].strip()
+            for ln in (dis_raw or "").splitlines()
+            if ln.strip().startswith("package:")
+        }
+        sys_raw = self.shell("pm list packages -s", check=False, timeout=10)
+        sys_set = {
+            ln.split("package:", 1)[1].strip()
+            for ln in (sys_raw or "").splitlines()
+            if ln.strip().startswith("package:")
+        }
+
+        def _pretty_name(pkg: str) -> str:
+            parts = pkg.split(".")
+            tail = parts[-1]
+            if tail in ("android", "app", "mobile", "client", "lite") and len(parts) >= 2:
+                tail = parts[-2]
+            return tail.replace("_", " ").replace("-", " ").title()
+
+        if m == "launcher":
+            base = self.list_launcher_apps()
+            for item in base:
+                pkg = item["package"]
+                item["disabled"] = pkg in disabled_set
+                item["is_system"] = pkg in sys_set
+            return base
+
+        flag_map = {"user": "-3", "system": "-s", "disabled": "-d"}
+        flag = flag_map.get(m, "")
+        raw = self.shell(f"pm list packages {flag}".strip(), check=False, timeout=12)
+        pkgs = sorted(
+            {
+                ln.split("package:", 1)[1].strip()
+                for ln in (raw or "").splitlines()
+                if ln.strip().startswith("package:")
+            }
+        )
+        items: List[dict] = []
+        for pkg in pkgs:
+            items.append(
+                {
+                    "name": _pretty_name(pkg),
+                    "package": pkg,
+                    "disabled": pkg in disabled_set,
+                    "is_system": pkg in sys_set,
+                }
+            )
+        items.sort(key=lambda item: (item["name"].lower(), item["package"].lower()))
+        return items
+
+    def freeze_app(self, package: str, freeze: bool = True) -> str:
+        """Freezes (disables) or unfreezes (enables) a user or system bloatware app (uses Root when available)."""
+        pkg = (package or "").strip()
+        if not pkg:
+            raise ADBError("প্যাকেজের নাম খালি।")
+        if freeze and pkg in self.CRITICAL_SYSTEM_PACKAGES:
+            raise ADBError(
+                f"নিরাপত্তার কারণে কোর সিস্টেম প্যাকেজ '{pkg}' ফ্রিজ করা ব্লক করা হয়েছে (এতে ফোন বুটলুপ হতে পারে)।"
+            )
+
+        rooted = self.has_root()
+        if freeze:
+            cmd = f"pm disable-user --user 0 {shlex.quote(pkg)}"
+            out = self.root_shell(cmd, check=False, timeout=10) if rooted else self.shell(cmd, check=False, timeout=10)
+            low = (out or "").lower()
+            if ("securityexception" in low or "cannot disable" in low or "failed" in low) and rooted:
+                out = self.root_shell(f"pm disable {shlex.quote(pkg)}", check=False, timeout=10)
+            if "securityexception" in (out or "").lower() or "permission" in (out or "").lower():
+                raise ADBError(f"'{pkg}' ফ্রিজ করা যায়নি (নন-রুট সীমাবদ্ধতা): {out}")
+            return out or f"❄️ Frozen: {pkg}"
+        else:
+            cmd = f"pm enable {shlex.quote(pkg)}"
+            out = self.root_shell(cmd, check=False, timeout=10) if rooted else self.shell(cmd, check=False, timeout=10)
+            return out or f"🔥 Unfrozen: {pkg}"
 
     def launch_app(self, package: str) -> str:
         """Launches an app reliably via resolve-activity + am start (avoids monkey timeouts on Android 12-14)."""
@@ -609,12 +920,159 @@ class ADB:
         self.shell(f"settings put secure location_mode {mode}", check=False)
         return f"Location {'ON' if enabled else 'OFF'}"
 
+    def get_flashlight_state(self) -> Optional[bool]:
+        """Reads live Flashlight state from SystemUI (`mFlashlightEnabled=true/false`), or None if unavailable."""
+        import re
+
+        out = self.shell(
+            "dumpsys activity service com.android.systemui | grep -m 1 'mFlashlightEnabled='",
+            check=False,
+            timeout=6,
+        )
+        m = re.search(r"mFlashlightEnabled=(true|false)", out or "", flags=re.IGNORECASE)
+        if m:
+            return m.group(1).lower() == "true"
+        return None
+
+    @staticmethod
+    def _find_qs_flashlight_node(xml_raw: str) -> Optional[dict]:
+        """Parses Quick Settings UI hierarchy XML to locate the Flashlight/Torch tile bounds & checked state."""
+        import re
+        import xml.etree.ElementTree as ET
+
+        if not xml_raw or not xml_raw.strip().startswith("<"):
+            return None
+        try:
+            root = ET.fromstring(xml_raw)
+        except ET.ParseError:
+            return None
+
+        keywords = ("flashlight", "torch", "osflashlight", "ফ্ল্যাশলাইট", "টর্চ")
+        candidates = []
+        for node in root.iter("node"):
+            pkg = (node.attrib.get("package") or "").lower()
+            desc = (node.attrib.get("content-desc") or "").strip().lower()
+            text = (node.attrib.get("text") or "").strip().lower()
+            if not desc and not text:
+                continue
+            matched = any(
+                (k in desc and len(desc) <= 40) or (k in text and len(text) <= 40)
+                for k in keywords
+            )
+            if not matched:
+                continue
+            nums = list(map(int, re.findall(r"\d+", node.attrib.get("bounds", ""))))
+            if len(nums) != 4:
+                continue
+            x1, y1, x2, y2 = nums
+            if x2 <= x1 or y2 <= y1:
+                continue
+            is_sysui = 1 if "systemui" in pkg else 0
+            clickable = 1 if node.attrib.get("clickable") == "true" else 0
+            checkable = 1 if node.attrib.get("checkable") == "true" else 0
+            # Prefer clickable & checkable SystemUI Switch/tile node
+            score = (is_sysui, clickable, checkable, (x2 - x1) * (y2 - y1))
+            checked_val: Optional[bool] = None
+            if checkable:
+                checked_val = node.attrib.get("checked") == "true"
+            elif text in ("on", "off"):
+                checked_val = text == "on"
+            candidates.append((score, (x1 + x2) // 2, (y1 + y2) // 2, checked_val))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        _, cx, cy, checked_val = candidates[0]
+        return {"cx": cx, "cy": cy, "checked": checked_val}
+
     def set_flashlight(self, enabled: bool) -> str:
-        # Non-root Android-এ সরাসরি torch API নেই; Quick Settings Tile ও OEM setting চেষ্টা করা হয়
-        val = "1" if enabled else "0"
-        self.shell(f"settings put secure flashlight_enabled {val}", check=False)
-        out = self.shell("cmd statusbar click-tile com.android.systemui/.qs.tiles.FlashlightTile", check=False)
-        return out or f"Flashlight toggle command sent ({'ON' if enabled else 'OFF'})"
+        """
+        Turns Flashlight ON or OFF:
+        - Rooted devices: Instant silent sysfs LED hardware toggle (0.1s, ZERO screen wake!)
+        - Non-root fallback: SystemUI state + Quick Settings tile via uiautomator
+        """
+        import re
+
+        target_label = "ON" if enabled else "OFF"
+
+        # 👑 Root Fast-Path: Instant silent hardware LED toggle without waking screen or expanding QS!
+        if self.has_root():
+            val = "1" if enabled else "0"
+            sysfs_cmd = (
+                "for p in "
+                "/sys/class/camera/flash/rear_flash "
+                "/sys/class/leds/flashlight/brightness "
+                "/sys/class/leds/torch-light0/brightness "
+                "/sys/class/leds/torch-light1/brightness "
+                "/sys/class/leds/led:torch_0/brightness "
+                "/sys/class/leds/flash_led/brightness "
+                "/sys/class/leds/mt6360_pmu_fled1/brightness; do "
+                "if [ -w \"$p\" ] || [ -e \"$p\" ]; then "
+                "if [ \"$p\" = \"/sys/class/camera/flash/rear_flash\" ]; then "
+                f"echo {val} > \"$p\" && echo \"OK:$p\" && exit 0; "
+                "else "
+                "mb=$(cat \"$(dirname \"$p\")/max_brightness\" 2>/dev/null); "
+                "[ -z \"$mb\" ] && mb=128; "
+                f"wval={val}; [ \"$wval\" = \"1\" ] && wval=\"$mb\"; "
+                "echo \"$wval\" > \"$p\" && echo \"OK:$p\" && exit 0; "
+                "fi; fi; done; echo 'NO_NODE'"
+            )
+            r_out = self.root_shell(sysfs_cmd, check=False, timeout=5)
+            if "OK:" in (r_out or ""):
+                return f"🔦 Flashlight (👑 Root Instant) সফলভাবে {target_label} করা হয়েছে!"
+
+        cur_state = self.get_flashlight_state()
+        if cur_state is not None and cur_state == enabled:
+            return f"🔦 Flashlight ইতিমধ্যেই {target_label} আছে।"
+
+        # স্ক্রিন অফ থাকলে সাময়িকভাবে জাগানো (লক স্ক্রিনেও Quick Settings কাজ করে)
+        pwr = self.shell("dumpsys power | grep -E 'mWakefulness=|Display Power: state='", check=False, timeout=5)
+        if "Asleep" in pwr or "state=OFF" in pwr:
+            self.keyevent("KEYCODE_WAKEUP")
+            time.sleep(0.45)
+
+        remote_xml = f"/data/local/tmp/__adb_qs_torch_{int(time.time())}.xml"
+        tile = None
+        try:
+            self.shell("cmd statusbar expand-settings", check=False, timeout=5)
+            time.sleep(0.55)
+
+            for page_try in range(2):
+                self.shell(f"uiautomator dump {remote_xml}", check=False, timeout=8)
+                raw_xml = self.shell(f"cat {remote_xml}", check=False, timeout=6)
+                tile = self._find_qs_flashlight_node(raw_xml)
+                if tile is not None:
+                    break
+                if page_try == 0:
+                    # প্রথম পেজে না পেলে Quick Settings পরের পেজে সোয়াইপ করে খোঁজা
+                    wm = self.shell("wm size", check=False, timeout=5)
+                    m_sz = re.search(r"(\d+)x(\d+)", wm or "")
+                    w, h = (int(m_sz.group(1)), int(m_sz.group(2))) if m_sz else (720, 1600)
+                    self.swipe(int(w * 0.85), int(h * 0.35), int(w * 0.15), int(h * 0.35), duration=250)
+                    time.sleep(0.45)
+
+            if tile is None:
+                raise ADBError(
+                    "Quick Settings প্যানেলে 'Flashlight / Torch' টাইল খুঁজে পাওয়া যায়নি।\n"
+                    "টিপস: ফোনের Quick Settings-এ Flashlight টাইলটি প্রথম বা দ্বিতীয় পেজে রাখুন।"
+                )
+
+            # UI চেকবক্স থেকেই যদি দেখা যায় ইতিমধ্যেই কাঙ্ক্ষিত অবস্থায় আছে, তবে ট্যাপ বাদ দেওয়া
+            if tile["checked"] is not None and tile["checked"] == enabled:
+                return f"🔦 Flashlight ইতিমধ্যেই {target_label} আছে।"
+
+            self.tap(tile["cx"], tile["cy"])
+            time.sleep(0.35)
+        finally:
+            self.shell(f"rm -f {remote_xml}", check=False, timeout=4)
+            self.shell("cmd statusbar collapse", check=False, timeout=5)
+
+        final_state = self.get_flashlight_state()
+        if final_state is not None:
+            if final_state == enabled:
+                return f"🔦 Flashlight সফলভাবে {target_label} করা হয়েছে!"
+            return f"⚠️ Flashlight ট্যাপ পাঠানো হয়েছে, কিন্তু বর্তমান অবস্থা: {'ON' if final_state else 'OFF'}"
+        return f"🔦 Flashlight {target_label} কমান্ড সম্পন্ন হয়েছে।"
 
     def set_brightness(self, level: int) -> str:
         level = max(0, min(255, int(level)))
@@ -628,6 +1086,43 @@ class ADB:
         sec = ms // 1000
         label = f"{sec // 60} min" if sec >= 60 else f"{sec} sec"
         return f"Screen Timeout set to {label} ({ms} ms)"
+
+    def set_airplane_mode(self, enabled: bool) -> str:
+        """Toggles Airplane Mode cleanly (uses Root broadcast when rooted, or Android 11+ cmd connectivity)."""
+        state_word = "enable" if enabled else "disable"
+        num = "1" if enabled else "0"
+        bval = "true" if enabled else "false"
+        if self.has_root():
+            self.root_shell(
+                f"cmd connectivity airplane-mode {state_word} 2>/dev/null || "
+                f"(settings put global airplane_mode_on {num} && "
+                f"am broadcast -a android.intent.action.AIRPLANE_MODE --ez state {bval})",
+                check=False,
+                timeout=8,
+            )
+            return f"✈️ Airplane Mode (👑 Root) {'ON' if enabled else 'OFF'} করা হয়েছে!"
+        out = self.shell(f"cmd connectivity airplane-mode {state_word}", check=False, timeout=8)
+        if "unknown" in (out or "").lower() or "securityexception" in (out or "").lower():
+            raise ADBError("নন-রুট ডিভাইসে এই Android ভার্সনে Airplane Mode টগল ব্লক করা আছে (Root প্রয়োজন)।")
+        return f"✈️ Airplane Mode {'ON' if enabled else 'OFF'} করা হয়েছে!"
+
+    def set_hotspot(self, enabled: bool) -> str:
+        """Toggles Wi-Fi Mobile Hotspot (requires Root on Android 10–15)."""
+        if not self.has_root():
+            raise ADBError("Hotspot ON/OFF কন্ট্রোল করার জন্য রুটেড ডিভাইস (`su`) প্রয়োজন।")
+        if enabled:
+            out = self.root_shell(
+                "cmd wifi start-softap 2>/dev/null || cmd tethering start-tethering wifi 2>/dev/null || svc wifi disable",
+                check=False,
+                timeout=8,
+            )
+            return f"📡 Hotspot (👑 Root) ON কমান্ড পাঠানো হয়েছে। {(out or '').strip()}".strip()
+        out = self.root_shell(
+            "cmd wifi stop-softap 2>/dev/null || cmd tethering stop-tethering wifi 2>/dev/null",
+            check=False,
+            timeout=8,
+        )
+        return f"📡 Hotspot (👑 Root) OFF করা হয়েছে। {(out or '').strip()}".strip()
 
     # -------- app permissions --------
     def grant_permission(self, package: str, permission: str) -> str:
@@ -785,7 +1280,34 @@ class ADB:
             check=False,
             timeout=10,
         )
-        rows = self._parse_content_rows(raw)[:limit]
+        rows: List[dict] = []
+        blocked = "SecurityException" in (raw or "") or "Permission Denial" in (raw or "")
+        if not blocked:
+            rows = self._parse_content_rows(raw)[:limit]
+
+        # 👑 Root Unblocked Fallback (su content query -> direct SQLite mmssms.db)
+        if (blocked or not rows) and self.has_root():
+            r_raw = self.root_shell(
+                "content query --uri content://sms/inbox --projection _id:address:date:body --sort 'date DESC'",
+                check=False,
+                timeout=10,
+            )
+            if r_raw and "SecurityException" not in r_raw and "Permission Denial" not in r_raw:
+                rows = self._parse_content_rows(r_raw)[:limit]
+            if not rows:
+                sq_rows = self._read_root_sqlite(
+                    [
+                        "/data/user_de/0/com.android.providers.telephony/databases/mmssms.db",
+                        "/data/data/com.android.providers.telephony/databases/mmssms.db",
+                    ],
+                    f"SELECT address, date, body FROM sms WHERE type=1 ORDER BY date DESC LIMIT {int(limit)}",
+                )
+                for addr, ts, body in sq_rows:
+                    rows.append({"address": str(addr or "Unknown"), "date": str(ts or ""), "body": str(body or "")})
+        elif blocked:
+            # Trigger standard helpful error message on non-root device
+            self._parse_content_rows(raw)
+
         out: List[dict] = []
         for r in rows:
             ts = r.get("date", "")
@@ -814,7 +1336,42 @@ class ADB:
             check=False,
             timeout=10,
         )
-        rows = self._parse_content_rows(raw)[:limit]
+        rows: List[dict] = []
+        blocked = "SecurityException" in (raw or "") or "Permission Denial" in (raw or "")
+        if not blocked:
+            rows = self._parse_content_rows(raw)[:limit]
+
+        # 👑 Root Unblocked Fallback (su content query -> direct SQLite calllog.db / contacts2.db)
+        if (blocked or not rows) and self.has_root():
+            r_raw = self.root_shell(
+                "content query --uri content://call_log/calls --projection number:name:type:date:duration --sort 'date DESC'",
+                check=False,
+                timeout=10,
+            )
+            if r_raw and "SecurityException" not in r_raw and "Permission Denial" not in r_raw:
+                rows = self._parse_content_rows(r_raw)[:limit]
+            if not rows:
+                sq_rows = self._read_root_sqlite(
+                    [
+                        "/data/user_de/0/com.android.providers.contacts/databases/calllog.db",
+                        "/data/data/com.android.providers.contacts/databases/calllog.db",
+                        "/data/data/com.android.providers.contacts/databases/contacts2.db",
+                    ],
+                    f"SELECT number, name, type, date, duration FROM calls ORDER BY date DESC LIMIT {int(limit)}",
+                )
+                for num, name, ctype, ts, dur in sq_rows:
+                    rows.append(
+                        {
+                            "number": str(num or "Unknown"),
+                            "name": str(name or ""),
+                            "type": str(ctype or ""),
+                            "date": str(ts or ""),
+                            "duration": str(dur or "0"),
+                        }
+                    )
+        elif blocked:
+            self._parse_content_rows(raw)
+
         type_map = {"1": "Incoming", "2": "Outgoing", "3": "Missed", "5": "Rejected"}
         out: List[dict] = []
         for r in rows:
@@ -843,7 +1400,9 @@ class ADB:
         num = number.strip().replace(" ", "")
         if not num:
             raise ADBError("অনুগ্রহ করে একটি মোবাইল নাম্বার লিখুন।")
-        return self.shell(f"am start -a android.intent.action.DIAL -d {shlex.quote('tel:' + num)}", check=False)
+        # Android Dialer drops raw '#' as URI fragment unless URL-encoded as '%23' (needed for USSD like *511# / *2#)
+        uri_num = num.replace("#", "%23")
+        return self.shell(f"am start -a android.intent.action.DIAL -d {shlex.quote('tel:' + uri_num)}", check=False)
 
     def call_action(self, action: str) -> str:
         if action == "answer":
@@ -851,6 +1410,248 @@ class ADB:
         if action == "end":
             return self.keyevent("KEYCODE_ENDCALL")
         raise ADBError(f"Unknown call action: {action}")
+
+    # -------- SIM & Phone Number Detection --------
+    @staticmethod
+    def _decode_binder_string16(raw: str) -> str:
+        """Decodes a UTF-16LE string16 from Android `service call` Parcel hex dump output."""
+        import re
+
+        if not raw or "Exception" in raw or "Error" in raw or "Parcel data" in raw:
+            return ""
+        words: List[int] = []
+        for line in raw.splitlines():
+            m = re.match(r"\s*0x[0-9a-fA-F]+:\s+([0-9a-fA-F ]{8,40})", line)
+            if m:
+                for hx in m.group(1).split():
+                    if len(hx) == 8:
+                        words.append(int(hx, 16))
+        if len(words) < 3 or words[0] != 0:
+            return ""
+        slen = words[1]
+        if slen <= 0 or slen > 64:
+            return ""
+        raw_bytes = b"".join(w.to_bytes(4, "little") for w in words[2:])
+        return raw_bytes[: slen * 2].decode("utf-16-le", errors="ignore").rstrip("\x00").strip()
+
+    @staticmethod
+    def _is_valid_phone_number(val: str) -> bool:
+        """Validates a candidate phone number (rejects redacted masks like [****] and 18-20 digit ICCIDs)."""
+        import re
+
+        s = (val or "").strip()
+        if not s or "*" in s or s.lower() in ("null", "none", "unknown", "empty"):
+            return False
+        digits = re.sub(r"\D", "", s)
+        # Real phone numbers are 7–15 digits; ICCIDs are 18–20 digits starting with 89
+        if len(digits) < 7 or len(digits) > 15:
+            return False
+        if len(digits) >= 14 and digits.startswith("89"):
+            return False
+        return bool(re.fullmatch(r"\+?[\d\-\s\(\)]{7,22}", s))
+
+    @staticmethod
+    def _ussd_for_carrier(carrier: str, mcc_mnc: str = "") -> str:
+        """Returns quick 'Check My Number' USSD code for common carriers (especially Bangladesh)."""
+        c = (carrier or "").lower()
+        code = (mcc_mnc or "").strip()
+        if code == "47003" or "banglalink" in c:
+            return "*511#"
+        if code == "47001" or "grameen" in c or c == "gp":
+            return "*2#"
+        if code == "47002" or "robi" in c:
+            return "*2#"
+        if code == "47007" or "airtel" in c:
+            return "*2#"
+        if code == "47004" or "teletalk" in c:
+            return "*551#"
+        if "skitto" in c:
+            return "*121*1*1#"
+        return ""
+
+    def get_sim_info(self) -> List[dict]:
+        """
+        Detects active SIM slots, carrier names, and mobile phone numbers via non-root ADB:
+        1. `dumpsys isub` (active subscriptions, carrier, country ISO, unredacted number if exposed)
+        2. `service call iphonesubinfo` (UTF-16LE Parcel line1Number for devices exposing EF_MSISDN to shell)
+        3. `dumpsys ims` (VoLTE sip:/tel: MSISDN URI if present)
+        4. `getprop gsm.sim.operator.*` fallback if `dumpsys isub` has no active rows
+        """
+        import re
+
+        raw = self.shell(
+            "dumpsys isub | head -n 65; "
+            "echo '__ALPHA__'; getprop gsm.sim.operator.alpha; "
+            "echo '__NUM__'; getprop gsm.sim.operator.numeric; "
+            "echo '__ISO__'; getprop gsm.sim.operator.iso-country; "
+            "echo '__STATE__'; getprop gsm.sim.state",
+            check=False,
+            timeout=8,
+        )
+        parts = (raw or "").split("__ALPHA__")
+        isub_txt = parts[0] if parts else ""
+        rest = parts[1] if len(parts) > 1 else ""
+        alpha_raw = rest.split("__NUM__")[0].strip() if "__NUM__" in rest else ""
+        rest2 = rest.split("__NUM__")[1] if "__NUM__" in rest else ""
+        num_raw = rest2.split("__ISO__")[0].strip() if "__ISO__" in rest2 else ""
+        rest3 = rest2.split("__ISO__")[1] if "__ISO__" in rest2 else ""
+        iso_raw = rest3.split("__STATE__")[0].strip() if "__STATE__" in rest3 else ""
+        state_raw = rest3.split("__STATE__")[1].strip() if "__STATE__" in rest3 else ""
+
+        by_slot: Dict[int, dict] = {}
+        for line in isub_txt.splitlines():
+            if "Active subscription info list changed" in line:
+                break
+            if "simSlotIndex=" not in line:
+                continue
+            m_slot = re.search(r"simSlotIndex=(-?\d+)", line)
+            if not m_slot:
+                continue
+            slot_idx = int(m_slot.group(1))
+            if slot_idx < 0 or slot_idx in by_slot:
+                continue
+
+            m_id = re.search(r"\bid=(\d+)", line)
+            m_disp = re.search(r"displayName=([^\s\]\}]+(?:\s+[^\s\]\}=]+)*?)(?=\s+[a-zA-Z_]+=|[\]\}]|$)", line)
+            m_car = re.search(r"carrierName=([^\s\]\}]+(?:\s+[^\s\]\}=]+)*?)(?=\s+[a-zA-Z_]+=|[\]\}]|$)", line)
+            m_mcc = re.search(r"\bmcc=(\d+)", line)
+            m_mnc = re.search(r"\bmnc=(\d+)", line)
+            m_iso = re.search(r"countryIso=([a-zA-Z]{2})", line)
+
+            carrier = ""
+            if m_car and m_car.group(1).strip() not in ("", "null", "No network connection", "Emergency calls only"):
+                carrier = m_car.group(1).strip()
+            elif m_disp and m_disp.group(1).strip() not in ("", "null"):
+                carrier = m_disp.group(1).strip()
+
+            mcc_mnc = (m_mcc.group(1) + m_mnc.group(1)) if (m_mcc and m_mnc) else ""
+            iso = m_iso.group(1).lower() if m_iso else ""
+
+            # Check unredacted phone number fields in SubscriptionInfo
+            detected_num = ""
+            detected_src = ""
+            redacted = False
+            for field_name, src_label in (
+                ("number", "SIM"),
+                ("numberFromCarrier", "Carrier"),
+                ("numberFromIms", "IMS"),
+            ):
+                m_num = re.search(rf"\b{field_name}=([^\s\]\}}]*)", line)
+                if not m_num:
+                    continue
+                cand = m_num.group(1).strip()
+                if "[****]" in cand or "***" in cand:
+                    redacted = True
+                elif self._is_valid_phone_number(cand) and not detected_num:
+                    detected_num = cand
+                    detected_src = src_label
+
+            by_slot[slot_idx] = {
+                "slot": slot_idx + 1,
+                "sub_id": m_id.group(1) if m_id else "",
+                "carrier": carrier or f"SIM {slot_idx + 1}",
+                "country_iso": iso,
+                "mcc_mnc": mcc_mnc,
+                "number": detected_num,
+                "source": detected_src,
+                "redacted": redacted,
+                "ussd": self._ussd_for_carrier(carrier, mcc_mnc),
+            }
+
+        # Fallback to gsm.sim.operator.* if dumpsys isub yielded no active slots
+        if not by_slot and alpha_raw:
+            alphas = [a.strip() for a in alpha_raw.split(",")]
+            nums = [n.strip() for n in num_raw.split(",")] if num_raw else []
+            isos = [i.strip().lower() for i in iso_raw.split(",")] if iso_raw else []
+            states = [st.strip().upper() for st in state_raw.split(",")] if state_raw else []
+            for idx, car in enumerate(alphas):
+                st = states[idx] if idx < len(states) else ""
+                if not car and st not in ("LOADED", "READY"):
+                    continue
+                mm = nums[idx] if idx < len(nums) else ""
+                iso = isos[idx] if idx < len(isos) else ""
+                by_slot[idx] = {
+                    "slot": idx + 1,
+                    "sub_id": "",
+                    "carrier": car or f"SIM {idx + 1}",
+                    "country_iso": iso,
+                    "mcc_mnc": mm,
+                    "number": "",
+                    "source": "",
+                    "redacted": False,
+                    "ussd": self._ussd_for_carrier(car, mm),
+                }
+
+        sims = [by_slot[k] for k in sorted(by_slot.keys())]
+
+        # Tier 2: Try `service call iphonesubinfo` in ONE batched shell command for any slot still missing a number
+        missing = [s for s in sims if not s["number"]]
+        if missing:
+            cmds: List[str] = []
+            for s in missing:
+                sid = s["sub_id"]
+                if sid:
+                    for code in (15, 16, 17, 18):
+                        cmds.append(
+                            f"echo '__SUB_{s['slot']}_{code}__'; "
+                            f"service call iphonesubinfo {code} i32 {sid} s16 com.android.shell s16 '' 2>/dev/null"
+                        )
+                elif len(sims) == 1:
+                    for code in (15, 16, 17):
+                        cmds.append(
+                            f"echo '__SUB_{s['slot']}_{code}__'; "
+                            f"service call iphonesubinfo {code} s16 com.android.shell s16 '' 2>/dev/null"
+                        )
+            if cmds:
+                parcel_out = self.shell("; ".join(cmds), check=False, timeout=8)
+                for s in missing:
+                    for code in (15, 16, 17, 18):
+                        marker = f"__SUB_{s['slot']}_{code}__"
+                        if marker not in parcel_out:
+                            continue
+                        seg = parcel_out.split(marker, 1)[1].split("__SUB_", 1)[0]
+                        cand = self._decode_binder_string16(seg)
+                        if self._is_valid_phone_number(cand):
+                            s["number"] = cand
+                            s["source"] = "SIM"
+                            break
+
+        # Tier 3: Check `dumpsys ims` for VoLTE sip:/tel: MSISDN if still missing
+        if any(not s["number"] for s in sims):
+            ims_out = self.shell(
+                "dumpsys ims | grep -iE 'sip:\\+?[0-9]{7,15}@|tel:\\+?[0-9]{7,15}' | head -n 10",
+                check=False,
+                timeout=6,
+            )
+            found_ims: List[str] = []
+            for m in re.finditer(r"(?:sip|tel):(\+?\d{7,15})(?:[@;>\s]|$)", ims_out or "", flags=re.IGNORECASE):
+                cand = m.group(1)
+                if self._is_valid_phone_number(cand) and cand not in found_ims:
+                    found_ims.append(cand)
+            if found_ims:
+                idx_ims = 0
+                for s in sims:
+                    if not s["number"] and idx_ims < len(found_ims):
+                        s["number"] = found_ims[idx_ims]
+                        s["source"] = "IMS"
+                        idx_ims += 1
+
+        # Tier 4: Root SQLite reader on `telephony.db` (`siminfo` table) if still missing
+        if any(not s["number"] for s in sims) and self.has_root():
+            sq_rows = self._read_root_sqlite(
+                [
+                    "/data/user_de/0/com.android.providers.telephony/databases/telephony.db",
+                    "/data/data/com.android.providers.telephony/databases/telephony.db",
+                ],
+                "SELECT sim_id, number FROM siminfo WHERE sim_id >= 0 AND number IS NOT NULL AND number != ''",
+            )
+            by_slot_db = {int(slot_i) + 1: str(num).strip() for slot_i, num in sq_rows if self._is_valid_phone_number(str(num or ""))}
+            for s in sims:
+                if not s["number"] and s["slot"] in by_slot_db:
+                    s["number"] = by_slot_db[s["slot"]]
+                    s["source"] = "Root DB"
+
+        return sims
 
     def list_recent_media(self, folder: str, limit: int = 20) -> List[dict]:
         """Lists newest non-directory media files in a remote Android folder via ls -lt."""
@@ -895,20 +1696,22 @@ class ADB:
                 break
         return items
 
-    def list_directory_entries(self, remote_dir: str) -> List[dict]:
-        """Lists folders and files inside remote_dir via ls -la for the Interactive File Explorer."""
+    def list_directory_entries(self, remote_dir: str, use_root: bool = False) -> List[dict]:
+        """Lists folders and files inside remote_dir via ls -la (supports Root Mode for /data/data, /system)."""
         clean_dir = (remote_dir or "/sdcard").strip()
         if clean_dir != "/":
             clean_dir = clean_dir.rstrip("/")
         # Trailing slash forces Android toybox `ls -la /sdcard/` to follow directory symlinks!
         ls_target = "/" if clean_dir == "/" else f"{clean_dir}/"
-        raw = self.shell(f"ls -la {shlex.quote(ls_target)}", check=False, timeout=12)
+        cmd = f"ls -la {shlex.quote(ls_target)}"
+        raw = self.root_shell(cmd, check=False, timeout=12) if use_root else self.shell(cmd, check=False, timeout=12)
         if not raw:
             return []
         if "No such file or directory" in raw:
             raise ADBError(f"ফোল্ডার পাওয়া যায়নি: {clean_dir}")
         if "Permission denied" in raw and len(raw.splitlines()) <= 2:
-            raise ADBError(f"পারমিশন নেই: {clean_dir}")
+            hint = "" if use_root else " (রুটেড ফোন হলে '👑 Root Mode' চালু করে দেখুন)"
+            raise ADBError(f"পারমিশন নেই: {clean_dir}{hint}")
 
         dirs: List[dict] = []
         files: List[dict] = []
@@ -964,9 +1767,10 @@ class ADB:
         files.sort(key=lambda x: x["name"].lower())
         return dirs + files
 
-    def rename_path(self, old_path: str, new_path: str) -> str:
+    def rename_path(self, old_path: str, new_path: str, use_root: bool = False) -> str:
         """Renames or moves a file/folder on the device."""
-        return self.shell(f"mv {shlex.quote(old_path)} {shlex.quote(new_path)}", check=True)
+        cmd = f"mv {shlex.quote(old_path)} {shlex.quote(new_path)}"
+        return self.root_shell(cmd, check=True) if use_root else self.shell(cmd, check=True)
 
 
 class ADBTerminalTool:

@@ -1,11 +1,17 @@
-# Sensitive / local device state (NEVER push PINs/passwords!)
+# Sensitive / local device state (NEVER push PINs/passwords/numbers!)
 device_profiles.json
+device_sim_numbers.json
 reconnect_state.json
+macros.json
+AGENTS.md
 
-# Generated media & caches
+# Generated media, logs & caches
 screenshots/
 recordings/
 *.apk
+*.log
+out.txt
+err.txt
 __pycache__/
 *.py[cod]
 .venv/
@@ -13,3 +19,9 @@ android_companion/.gradle/
 android_companion/app/build/
 android_companion/build/
 android_companion/local.properties
+
+# Nuitka native EXE working build artifacts (final release binary lives in release/)
+dist_nuitka/
+*.build/
+*.dist/
+*.onefile-build/

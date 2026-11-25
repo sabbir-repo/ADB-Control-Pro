@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>⚡ ADB Control Pro</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body data-theme="emerald">
   <div class="app-shell">
     <!-- TOP GLASS TELEMETRY HUD -->
@@ -13,43 +15,49 @@
       <div class="brand">
         <div class="brand-logo">⚡</div>
         <div>
-          <div class="brand-title">ADB CONTROL PRO</div>
-          <div class="brand-sub">Modern PyWebView Desktop Suite</div>
+          <div class="brand-title">ADB CONTROL PRO <span class="badge" style="vertical-align:middle;margin-left:4px;">v1.0.0</span></div>
+          <div class="brand-sub">by Sabbir Ahmmed • github.com/sabbir-repo</div>
         </div>
       </div>
 
       <div class="hud-pills">
         <div class="pill"><span id="hud-dot" class="dot"></span><span id="hud-model">No Device</span></div>
+        <div class="pill pill-root" id="hud-root-pill" style="display:none;" onclick="checkRootStatus()" title="রুটেড ডিভাইস — স্ট্যাটাস দেখতে ক্লিক করুন">👑 ROOT</div>
         <div class="pill" id="hud-bat-pill" style="display:none;">🔋 <span id="hud-bat">--%</span></div>
         <div class="pill" id="hud-conn-pill" style="display:none;">📶 <span id="hud-conn">--</span></div>
+        <div class="pill pill-copy" id="hud-phone-pill" style="display:none;" onclick="copyPrimaryPhone()" title="ক্লিক করে ফোন নম্বর কপি করুন">📱 <span id="hud-phone" class="mono">--</span> 📋</div>
         <div class="pill" id="hud-wd-pill" style="display:none;border-color:var(--accent);">🛡️ Auto-Reconnect</div>
       </div>
 
       <div class="top-actions">
-        <select id="device-select" style="min-width: 195px;" onchange="onSelectDevice()"></select>
-        <button class="btn btn-sm" onclick="refreshDevices()">🔄</button>
-        <button class="btn btn-accent btn-sm" onclick="oneClickUnlock()">🔓 Unlock</button>
-        <button class="btn btn-blue btn-sm" onclick="startScrcpy('standard')">🖥️ Mirror</button>
-        <button class="btn btn-sm" onclick="toggleConsole()" title="Toggle Output Console">💻 Console</button>
+        <select id="device-select" style="min-width: 225px; max-width: 300px;" onchange="onSelectDevice()"></select>
+        <button class="btn btn-sm" onclick="refreshDevices()" title="Refresh Devices">🔄</button>
+        <button class="btn btn-accent btn-sm" onclick="oneClickUnlock()" title="Smart 1-Click Unlock">🔓 Unlock</button>
+        <button class="btn btn-blue btn-sm" onclick="startScrcpy('standard')" title="Quick Screen Mirror">🖥️ Mirror</button>
+        <button class="btn btn-sm" onclick="toggleConsole()" title="Toggle Live Console">💻 Console</button>
       </div>
     </header>
 
     <!-- MAIN WORKSPACE -->
     <div class="main-body">
-      <!-- LEFT GLASS SIDEBAR -->
+      <!-- ORGANIZED GROUPED SIDEBAR (8 Focused Workspaces) -->
       <aside class="sidebar">
-        <div class="nav-label">CONTROL CENTER</div>
         <nav class="nav-list">
-          <button class="nav-btn active" data-page="device" onclick="switchPage('device', this)"><span class="nav-ico">📱</span> Device</button>
-          <button class="nav-btn" data-page="apps" onclick="switchPage('apps', this)"><span class="nav-ico">📦</span> Apps</button>
+          <div class="nav-label">CORE</div>
+          <button class="nav-btn active" data-page="remote" onclick="switchPage('remote', this)"><span class="nav-ico">🎮</span> Remote &amp; Controls</button>
+          <button class="nav-btn" data-page="connect" onclick="switchPage('connect', this)"><span class="nav-ico">📶</span> Connections</button>
+
+          <div class="nav-label">DISPLAY &amp; FILES</div>
+          <button class="nav-btn" data-page="scrcpy" onclick="switchPage('scrcpy', this)"><span class="nav-ico">🖥️</span> Screen &amp; Capture</button>
           <button class="nav-btn" data-page="files" onclick="switchPage('files', this)"><span class="nav-ico">📁</span> File Explorer</button>
-          <button class="nav-btn" data-page="monitor" onclick="switchPage('monitor', this)"><span class="nav-ico">📊</span> Monitor</button>
-          <button class="nav-btn" data-page="scrcpy" onclick="switchPage('scrcpy', this)"><span class="nav-ico">🖥️</span> Screen & Cam</button>
-          <button class="nav-btn" data-page="wifi" onclick="switchPage('wifi', this)"><span class="nav-ico">📶</span> WiFi & Live</button>
-          <button class="nav-btn" data-page="controls" onclick="switchPage('controls', this)"><span class="nav-ico">⚙️</span> Controls</button>
-          <button class="nav-btn" data-page="profiles" onclick="switchPage('profiles', this)"><span class="nav-ico">🔑</span> Profiles</button>
-          <button class="nav-btn" data-page="comms" onclick="switchPage('comms', this)"><span class="nav-ico">💬</span> Comms</button>
-          <button class="nav-btn" data-page="macro" onclick="switchPage('macro', this)"><span class="nav-ico">🤖</span> Macro & Rec</button>
+
+          <div class="nav-label">MANAGEMENT</div>
+          <button class="nav-btn" data-page="apps" onclick="switchPage('apps', this)"><span class="nav-ico">📦</span> Apps &amp; Perms</button>
+          <button class="nav-btn" data-page="comms" onclick="switchPage('comms', this)"><span class="nav-ico">💬</span> Comms &amp; OTP</button>
+
+          <div class="nav-label">AUTOMATION &amp; PRO</div>
+          <button class="nav-btn" data-page="macro" onclick="switchPage('macro', this)"><span class="nav-ico">🤖</span> Macro &amp; Inspector</button>
+          <button class="nav-btn" data-page="dev" onclick="switchPage('dev', this)"><span class="nav-ico">🔧</span> Monitor &amp; Dev</button>
         </nav>
 
         <div class="theme-picker">
@@ -65,108 +73,499 @@
 
       <!-- CENTER CONTENT -->
       <main class="content-wrap">
-        <!-- 1. DEVICE -->
-        <section id="page-device" class="page active">
-          <div class="card">
-            <div class="card-title">1. Connection & ADB Server</div>
-            <div class="row">
-              <button class="btn" onclick="refreshDevices()">📋 List Devices</button>
-              <button class="btn btn-blue" onclick="checkConnection()">✅ Check Connection</button>
-              <button class="btn" onclick="waitDevice()">⏳ Wait for Device</button>
-              <button class="btn" onclick="restartAdb()">🔁 Restart ADB</button>
-              <button class="btn btn-danger" onclick="rebootDevice()">⚠️ Reboot</button>
-            </div>
-            <div class="row">
-              <input id="wifi-ip" class="grow" type="text" placeholder="192.168.0.105:5555" />
-              <button class="btn btn-accent" onclick="connectWifi()">🔗 Connect Wi-Fi</button>
-              <button class="btn" onclick="disconnectDevice()">🔌 Disconnect</button>
+
+        <!-- ══════════════════ 1. REMOTE & CONTROLS (DEFAULT HOME) ══════════════════ -->
+        <section id="page-remote" class="page active">
+          <div class="page-header">
+            <div>
+              <div class="page-title">🎮 Remote &amp; Quick Controls</div>
+              <div class="page-desc">দৈনন্দিন ফোনের ন্যাভিগেশন, টেক্সট, ক্লিপবোর্ড এবং সিস্টেম কন্ট্রোল এক জায়গায়</div>
             </div>
           </div>
 
+          <div class="hero-strip">
+            <button class="btn btn-accent" onclick="oneClickUnlock()">🔓 1-Click Unlock</button>
+            <button class="btn btn-blue" onclick="wakeUnlock()">☀️ Wake &amp; Swipe</button>
+            <button class="btn btn-blue" onclick="takeScreenshot()">📸 Screenshot (Auto-Copy)</button>
+            <button class="btn" onclick="startScrcpy('standard')">🖥️ Mirror</button>
+            <button class="btn" onclick="sysToggle('flashlight', true)">🔦 Torch ON</button>
+            <button class="btn" onclick="sysToggle('flashlight', false)">🌑 Torch OFF</button>
+            <button class="btn btn-danger" style="margin-left:auto;" onclick="rebootDevice()">⚠️ Reboot</button>
+          </div>
+
+          <!-- Device SIM & Phone Number(s) Card -->
           <div class="card">
-            <div class="card-title">2. Remote Keys, Touch, Text & Clipboard</div>
-            <div class="row">
-              <button class="btn" onclick="sendKey('KEYCODE_HOME')">🏠 Home</button>
-              <button class="btn" onclick="sendKey('KEYCODE_BACK')">🔙 Back</button>
-              <button class="btn" onclick="sendKey('KEYCODE_APP_SWITCH')">🗂️ Recents</button>
-              <button class="btn" onclick="sendKey('KEYCODE_VOLUME_DOWN')">🔉 Vol -</button>
-              <button class="btn" onclick="sendKey('KEYCODE_VOLUME_UP')">🔊 Vol +</button>
-              <button class="btn" onclick="sendKey('KEYCODE_WAKEUP')">☀️ Wake</button>
-              <button class="btn" onclick="sendKey('KEYCODE_POWER')">🔒 Power</button>
-              <button class="btn btn-blue" onclick="wakeUnlock()">🔓 Wake & Swipe</button>
+            <div class="card-title">
+              <span>📱 SIM &amp; Phone Number(s)</span>
+              <div class="row" style="gap:6px;">
+                <button class="btn btn-sm" onclick="editSimNumber(1, '')">➕ Add Number</button>
+                <button class="btn btn-blue btn-sm" onclick="loadPhoneNumbers(false)">🔄 Detect SIM</button>
+              </div>
             </div>
-            <div class="row">
-              <input id="inp-text" class="grow" type="text" placeholder="Type text to send to phone..." onkeydown="if(event.key==='Enter')sendText()" />
-              <button class="btn btn-accent" onclick="sendText()">⌨️ Send Text</button>
-              <input id="tap-x" type="number" style="width:78px;" value="500" placeholder="X" />
-              <input id="tap-y" type="number" style="width:78px;" value="1000" placeholder="Y" />
-              <button class="btn" onclick="sendTap()">👆 Tap</button>
-            </div>
-            <div class="row">
-              <input id="inp-url" class="grow" type="text" placeholder="https://youtube.com" onkeydown="if(event.key==='Enter')openUrl()" />
-              <button class="btn btn-accent" onclick="openUrl()">🌐 Open URL</button>
-              <button class="btn btn-blue" onclick="pullClipboard()">📋 Phone → PC</button>
-              <button class="btn btn-blue" onclick="pushClipboard()">📋 PC → Phone</button>
+            <div id="sim-cards" class="sim-grid">
+              <div class="muted">ডিভাইস কানেক্ট হলে SIM ও ফোন নম্বর এখানে দেখাবে — অথবা "🔄 Detect SIM" ক্লিক করুন।</div>
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-title">3. Custom ADB Shell Command</div>
-            <div class="row">
-              <input id="shell-cmd" class="grow mono" type="text" value="getprop ro.product.model" onkeydown="if(event.key==='Enter')runShell()" />
-              <button class="btn btn-accent" onclick="runShell()">▶ Run Shell</button>
-            </div>
-          </div>
+          <div class="split-2">
+            <!-- Left: Navigation, Text, URL & Clipboard -->
+            <div class="card">
+              <div class="card-title">🕹️ Navigation, Input &amp; Clipboard</div>
+              <div class="sub-label">Hardware &amp; System Keys</div>
+              <div class="grid-4">
+                <button class="btn" onclick="sendKey('KEYCODE_HOME')">🏠 Home</button>
+                <button class="btn" onclick="sendKey('KEYCODE_BACK')">🔙 Back</button>
+                <button class="btn" onclick="sendKey('KEYCODE_APP_SWITCH')">🗂️ Recents</button>
+                <button class="btn" onclick="sendKey('KEYCODE_POWER')">🔒 Power</button>
+                <button class="btn" onclick="sendKey('KEYCODE_VOLUME_DOWN')">🔉 Vol -</button>
+                <button class="btn" onclick="sendKey('KEYCODE_VOLUME_UP')">🔊 Vol +</button>
+                <button class="btn" onclick="sendKey('KEYCODE_WAKEUP')">☀️ Wake</button>
+                <button class="btn" onclick="sendKey('KEYCODE_ENTER')">↵ Enter</button>
+              </div>
 
-          <div class="card">
-            <div class="card-title">4. Device Logs (Logcat Filter)</div>
-            <div class="row">
-              <span class="muted">Lines:</span>
-              <input id="log-lines" type="number" value="150" style="width:78px;" />
-              <select id="log-mode">
-                <option value="All">All</option>
-                <option value="Errors">Errors (*:E)</option>
-                <option value="Warnings">Warnings (*:W)</option>
-              </select>
-              <input id="log-kw" class="grow" type="text" placeholder="Keyword filter (optional)..." onkeydown="if(event.key==='Enter')fetchLogs()" />
-              <button class="btn btn-blue" onclick="fetchLogs()">📜 Fetch Logs</button>
+              <div class="divider"></div>
+              <div class="sub-label">Type Text / Open URL / Exact Tap</div>
+              <div class="row">
+                <input id="inp-text" class="grow" type="text" placeholder="Type text to send to phone..." onkeydown="if(event.key==='Enter')sendText()" />
+                <button class="btn btn-accent" onclick="sendText()">⌨️ Send</button>
+              </div>
+              <div class="row">
+                <input id="inp-url" class="grow" type="text" placeholder="https://youtube.com" onkeydown="if(event.key==='Enter')openUrl()" />
+                <button class="btn btn-blue" onclick="openUrl()">🌐 Open URL</button>
+              </div>
+              <div class="row">
+                <span class="muted">Tap:</span>
+                <input id="tap-x" type="number" style="width:76px;" value="500" placeholder="X" />
+                <input id="tap-y" type="number" style="width:76px;" value="1000" placeholder="Y" />
+                <button class="btn" onclick="sendTap()">👆 Tap</button>
+                <button class="btn btn-blue" style="margin-left:auto;" onclick="pullClipboard()">📋 Phone→PC</button>
+                <button class="btn btn-blue" onclick="pushClipboard()">📋 PC→Phone</button>
+              </div>
+            </div>
+
+            <!-- Right: Quick System Toggles & Display -->
+            <div class="card">
+              <div class="card-title">⚙️ System Toggles &amp; Display</div>
+              <div class="sub-label">Connectivity &amp; Sensors</div>
+              <div class="grid-2">
+                <button class="btn btn-accent" onclick="sysToggle('data', true)">📶 Mobile Data ON</button>
+                <button class="btn btn-danger" onclick="sysToggle('data', false)">📴 Mobile Data OFF</button>
+                <button class="btn btn-blue" onclick="sysToggle('bluetooth', true)">🔵 Bluetooth ON</button>
+                <button class="btn" onclick="sysToggle('bluetooth', false)">⚫ Bluetooth OFF</button>
+                <button class="btn btn-accent" onclick="sysToggle('location', true)">📍 Location ON</button>
+                <button class="btn" onclick="sysToggle('location', false)">🚫 Location OFF</button>
+                <button class="btn btn-blue" onclick="sysToggle('airplane', true)" title="Root / Android 11+">✈️ Airplane ON</button>
+                <button class="btn" onclick="sysToggle('airplane', false)" title="Root / Android 11+">🛬 Airplane OFF</button>
+                <button class="btn btn-accent" onclick="sysToggle('hotspot', true)" title="Root Required">📡 Hotspot ON</button>
+                <button class="btn" onclick="sysToggle('hotspot', false)" title="Root Required">📵 Hotspot OFF</button>
+              </div>
+              <div class="muted" style="margin-top:6px;font-size:11.5px;">👑 রুটেড ফোনে Torch স্ক্রিন অন না করেই ০.১ সেকেন্ডে চলে, এবং Airplane/Hotspot সরাসরি কাজ করে।</div>
+
+              <div class="divider"></div>
+              <div class="sub-label">Display Brightness &amp; Sleep Timeout</div>
+              <div class="row">
+                <span class="muted">☀️ Brightness:</span>
+                <input id="bright-range" class="grow" type="range" min="0" max="255" value="140" oninput="document.getElementById('bright-val').textContent=this.value" />
+                <span id="bright-val" class="badge">140</span>
+                <button class="btn btn-accent btn-sm" onclick="sysToggle('brightness', parseInt(document.getElementById('bright-range').value))">Apply</button>
+              </div>
+              <div class="row" style="margin-top:10px;">
+                <span class="muted">⏱️ Timeout:</span>
+                <select id="timeout-sel" class="grow">
+                  <option value="15000">15 Seconds</option>
+                  <option value="30000">30 Seconds</option>
+                  <option value="60000" selected>1 Minute</option>
+                  <option value="120000">2 Minutes</option>
+                  <option value="300000">5 Minutes</option>
+                  <option value="600000">10 Minutes</option>
+                  <option value="1800000">30 Minutes</option>
+                </select>
+                <button class="btn btn-blue btn-sm" onclick="sysToggle('timeout', parseInt(document.getElementById('timeout-sel').value))">Apply</button>
+              </div>
             </div>
           </div>
         </section>
 
-        <!-- 2. APPS -->
-        <section id="page-apps" class="page">
+        <!-- ══════════════════ 2. CONNECTIONS & COMPANION ══════════════════ -->
+        <section id="page-connect" class="page">
+          <div class="page-header">
+            <div>
+              <div class="page-title">📶 Connections, Watchdog &amp; Companion</div>
+              <div class="page-desc">Wi-Fi কানেকশন, Auto-Reconnect Watchdog, QR পেয়ারিং এবং Android Companion ম্যানেজমেন্ট</div>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-title">
-              <span>1. Launcher App Picker (Icon Apps Only)</span>
+              <span>1. 🛡️ Auto-Reconnect Watchdog &amp; Companion App</span>
+              <span id="wd-status" class="badge">Idle</span>
+            </div>
+            <div class="row">
+              <button id="btn-watchdog" class="btn btn-accent" onclick="toggleWatchdog()">🛡️ Enable Auto-Reconnect</button>
+              <button class="btn btn-blue" onclick="scanConnect5555()">🔍 Fast Scan Port 5555</button>
+              <label class="row" style="gap:5px;cursor:pointer;"><input id="wd-keepalive" type="checkbox" checked /> Keep-Alive Heartbeat (15s)</label>
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <button class="btn btn-accent" onclick="installCompanionApk()">📲 Install Companion APK (1-Click)</button>
+              <button class="btn btn-blue" onclick="setupCompanionPermissions()">🛠️ Optimize &amp; Whitelist Companion</button>
+              <span class="muted">ফোন রিবুট বা Wi-Fi ড্রপ হলে অটো-হিল ও UDP Beacon এর জন্য</span>
+            </div>
+          </div>
+
+          <div class="split-2">
+            <!-- Left: Direct Wi-Fi Connect, TCP/IP & Server -->
+            <div class="card">
+              <div class="card-title">2. 🔗 Direct Connect, TCP/IP &amp; ADB Server</div>
+              <div class="sub-label">Connect / Disconnect Target Wi-Fi Phone</div>
+              <div class="row">
+                <input id="wifi-ip" class="grow mono" type="text" placeholder="192.168.0.105:5555" onkeydown="if(event.key==='Enter')connectWifi()" />
+                <button class="btn btn-accent" onclick="connectWifi()">🔗 Connect</button>
+                <button class="btn btn-danger" onclick="disconnectDevice()">🔌 Disconnect</button>
+              </div>
+
+              <div class="divider"></div>
+              <div class="sub-label">USB → Fixed Wi-Fi Port (Recommended for Honor/MagicOS)</div>
+              <div class="row">
+                <span class="muted">Port:</span>
+                <input id="tcpip-port" type="number" value="5555" style="width:82px;" />
+                <button class="btn btn-accent btn-sm" onclick="enableTcpip()">🔁 Enable TCP/IP</button>
+                <button class="btn btn-blue btn-sm" onclick="transferAllTcpip()">📡 All USB → Wi-Fi</button>
+              </div>
+
+              <div class="divider"></div>
+              <div class="sub-label">ADB Server &amp; Device Checks</div>
+              <div class="row">
+                <button class="btn btn-sm" onclick="refreshDevices()">📋 List Devices</button>
+                <button class="btn btn-blue btn-sm" onclick="checkConnection()">✅ Check Info</button>
+                <button class="btn btn-sm" onclick="waitDevice()">⏳ Wait Device</button>
+                <button class="btn btn-sm" onclick="wifiStatus()">📶 Wi-Fi Status</button>
+                <button class="btn btn-danger btn-sm" onclick="restartAdb()">🔁 Restart ADB</button>
+              </div>
+            </div>
+
+            <!-- Right: Android 11+ Wireless QR / Manual Pairing -->
+            <div class="card">
+              <div class="card-title">3. 📷 Wireless Debugging Pairing (Android 11+)</div>
+              <div class="sub-label">Manual 6-Digit Code or Instant QR Scan</div>
+              <div class="row">
+                <input id="pair-ip" class="grow mono" type="text" placeholder="Pairing IP:PORT (e.g. 192.168.0.105:41234)" />
+                <input id="pair-code" style="width:118px;" class="mono" type="text" placeholder="6-digit code" />
+              </div>
+              <div class="row" style="margin-top:8px;">
+                <button class="btn btn-accent" onclick="pairWifiManual()">🔑 Pair Manual</button>
+                <button class="btn btn-blue" onclick="startQrPairing()">📷 Show QR Pairing</button>
+              </div>
+              <div id="qr-box" style="display:none; margin-top:12px; align-items:center; gap:14px;" class="row">
+                <img id="qr-img" style="width:155px;height:155px;border-radius:10px;background:#fff;padding:6px;" alt="ADB Pairing QR" />
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <div style="font-weight:700;color:var(--accent);">📱 ফোনে স্ক্যান করুন:</div>
+                  <div class="muted">Developer Options → Wireless Debugging → Pair device with QR code</div>
+                  <div id="qr-status" class="badge">Waiting...</div>
+                  <button class="btn btn-danger btn-sm" style="width:fit-content;" onclick="stopQrPairing()">✕ Close QR</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══════════════════ 3. SCREEN, CAMERA & CAPTURE ══════════════════ -->
+        <section id="page-scrcpy" class="page">
+          <div class="page-header">
+            <div>
+              <div class="page-title">🖥️ Screen Mirroring, Camera &amp; Capture</div>
+              <div class="page-desc">স্ক্রিন শেয়ারিং, Screen-Off স্টুডিও, ব্যাকগ্রাউন্ড ক্যামেরা, স্ক্রিনশট ও ভিডিও রেকর্ডিং</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="stopScrcpy()">🛑 Stop All scrcpy</button>
+          </div>
+
+          <div class="card">
+            <div class="card-title">1. ▶️ Quick Mirror, Camera, HID &amp; Custom Command</div>
+            <div class="sub-label">Screen Mirroring Presets</div>
+            <div class="grid-4">
+              <button class="btn btn-accent" onclick="startScrcpy('standard')">▶️ Standard</button>
+              <button class="btn btn-blue" onclick="startScrcpy('smooth')">⚡ Smooth 60fps</button>
+              <button class="btn" onclick="startScrcpy('weak_wifi')">📶 Low-Signal (1M)</button>
+              <button class="btn btn-blue" onclick="startScrcpy('screen_off')">📴 Quick Screen-Off</button>
+              <button class="btn" onclick="startScrcpy('always_top')">📌 Always on Top</button>
+              <button class="btn" onclick="startScrcpy('read_only')">👁️ Read-Only</button>
+              <button class="btn" onclick="multiDeviceScrcpy()">📱📱 Multi-Device</button>
+              <button class="btn" onclick="scrcpySessions()">🔍 Active Sessions</button>
+            </div>
+
+            <div class="sub-label">Background Camera (Android 12+), Live Mic (Android 11+) &amp; Input</div>
+            <div class="grid-4">
+              <button class="btn btn-accent" onclick="startScrcpy('cam_back')">📷 Back Camera (BG)</button>
+              <button class="btn btn-blue" onclick="startScrcpy('cam_front')">🤳 Front Camera (BG)</button>
+              <button class="btn btn-accent" onclick="startScrcpy('mic_listen')">🎙️ Live Mic Listen</button>
+              <button class="btn btn-blue" onclick="startScrcpy('hid')">⌨️ HID Key/Mouse</button>
+            </div>
+
+            <div class="divider"></div>
+            <div class="sub-label">Custom scrcpy Args &amp; Preset Builder</div>
+            <div class="row">
+              <input id="scrcpy-custom" class="grow mono" type="text" placeholder="Custom scrcpy args (e.g. -m 1024 --max-fps 60)" onkeydown="if(event.key==='Enter')startScrcpy('custom')" />
+              <select id="scrcpy-preset" style="max-width:240px;" onchange="applyScrcpyPreset()">
+                <option value="">✨ Custom Presets...</option>
+                <option value="--audio-source=mic --no-video --audio-bit-rate=128K">🎙️ Mic Audio Only (Listen)</option>
+                <option value="--audio-source=mic-unprocessed --no-video">🎙️ Raw Mic (Unprocessed)</option>
+                <option value="--no-audio">🔇 No Audio (Mute Mirror)</option>
+                <option value="--no-audio -S -w">🔇📴 Mute + Screen-Off</option>
+                <option value="-m 480 -b 800K --max-fps 25 --no-audio">📺 480p Ultra-Light (Mute)</option>
+                <option value="-m 720 -b 2M --max-fps 30">📺 720p Balanced Wi-Fi</option>
+                <option value="-m 720 -b 2M --max-fps 30 --no-audio">📺🔇 720p Wi-Fi (No Audio)</option>
+                <option value="-m 1080 -b 8M --max-fps 60">📺 1080p Crisp HD 60fps</option>
+                <option value="-m 1280 -b 12M --max-fps 60 --video-codec=h265 -w">🎮 Gaming 60fps (H265)</option>
+                <option value="-f -t -w">🎬 Fullscreen + Show Touches</option>
+                <option value="--window-borderless --always-on-top -m 800">🖼️ Borderless Floating</option>
+                <option value="--no-video --audio-bit-rate=128K">🔊 Audio Only (No Video)</option>
+                <option value="--capture-orientation=90 -m 1080">🔄 Landscape Lock (1080p)</option>
+                <option value="-S -w --power-off-on-close">🔋 Screen-Off + Lock on Close</option>
+              </select>
+              <button class="btn btn-accent" onclick="startScrcpy('custom')">🚀 Run Custom</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <span>2. 📴 Screen-Off Mirroring Studio (ফোনের স্ক্রিন বন্ধ রেখে কন্ট্রোল)</span>
+              <span id="soff-cmd-preview" class="badge mono">-S -m 720 --max-fps 30 -b 2M --no-audio -w</span>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <span class="field-lbl">Resolution</span>
+                <select id="soff-res" onchange="updateScreenOffPreview()">
+                  <option value="360">360p (Ultra Low)</option>
+                  <option value="480">480p (Very Low)</option>
+                  <option value="720" selected>720p (Balanced)</option>
+                  <option value="1024">1024p (Smooth HD)</option>
+                  <option value="1080">1080p (Full HD)</option>
+                  <option value="1440">1440p (2K High)</option>
+                  <option value="orig">Original (Max Native)</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-lbl">FPS</span>
+                <select id="soff-fps" onchange="updateScreenOffPreview()">
+                  <option value="15">15 FPS (Saver)</option>
+                  <option value="24">24 FPS</option>
+                  <option value="30" selected>30 FPS</option>
+                  <option value="60">60 FPS (Smooth)</option>
+                  <option value="90">90 FPS</option>
+                  <option value="120">120 FPS</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-lbl">Bitrate</span>
+                <select id="soff-bitrate" onchange="updateScreenOffPreview()">
+                  <option value="500K">500K (Weak Wi-Fi)</option>
+                  <option value="1M">1M (Low)</option>
+                  <option value="2M" selected>2M (Balanced)</option>
+                  <option value="4M">4M (Smooth)</option>
+                  <option value="8M">8M (High)</option>
+                  <option value="16M">16M (Ultra)</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-lbl">Audio</span>
+                <select id="soff-audio" onchange="updateScreenOffPreview()">
+                  <option value="off" selected>🔇 Mute (No Audio)</option>
+                  <option value="64K">🔊 Audio Low (64K)</option>
+                  <option value="128K">🔊 Audio Normal (128K)</option>
+                  <option value="192K">🔊 Audio High (192K)</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-lbl">Codec</span>
+                <select id="soff-codec" onchange="updateScreenOffPreview()">
+                  <option value="h264" selected>H.264</option>
+                  <option value="h265">H.265</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <label class="row" style="gap:5px;cursor:pointer;"><input id="soff-stay" type="checkbox" checked onchange="updateScreenOffPreview()" /> Stay Awake (-w)</label>
+              <label class="row" style="gap:5px;cursor:pointer;"><input id="soff-lock" type="checkbox" onchange="updateScreenOffPreview()" /> Lock on Close</label>
+              <label class="row" style="gap:5px;cursor:pointer;"><input id="soff-top" type="checkbox" onchange="updateScreenOffPreview()" /> Always on Top</label>
+              <label class="row" style="gap:5px;cursor:pointer;"><input id="soff-ro" type="checkbox" onchange="updateScreenOffPreview()" /> Read-Only</label>
+              <button class="btn btn-accent" style="margin-left:auto;" onclick="launchScreenOffMirror()">📴 Launch Screen-Off Mirror</button>
+            </div>
+          </div>
+
+          <div class="split-2">
+            <!-- Left: Screenshots & Screen Recording -->
+            <div class="card">
+              <div class="card-title">3. 📸 Screenshots, Video &amp; Mic Recording</div>
+              <div class="row">
+                <button class="btn btn-accent" onclick="takeScreenshot()">📸 Screenshot</button>
+                <button class="btn" onclick="burstScreenshots()">🎞️ Burst (3x)</button>
+                <button class="btn btn-blue" onclick="scrcpyRecord()">🔴 Record Screen</button>
+                <button class="btn btn-accent" onclick="scrcpyRecordMic()">🎙️ Record Mic</button>
+              </div>
+              <div class="row" style="margin-top:10px;">
+                <span class="muted">ADB Rec (sec):</span>
+                <input id="rec-sec" type="number" value="10" style="width:72px;" />
+                <button class="btn btn-blue" onclick="recordScreen()">🎥 ADB Record</button>
+                <button class="btn" style="margin-left:auto;" onclick="checkScrcpy()">✔️ Check scrcpy</button>
+              </div>
+            </div>
+
+            <!-- Right: Virtual Display -->
+            <div class="card">
+              <div class="card-title">4. 🖥️ Virtual Display Mode (App-in-Window)</div>
+              <div class="row">
+                <input id="vd-pkg" class="grow mono" type="text" value="com.android.chrome" placeholder="Package name" />
+                <select id="vd-size">
+                  <option value="Auto">Auto Size</option>
+                  <option value="1280x720/240">1280x720/240</option>
+                  <option value="1920x1080/320">1920x1080/320</option>
+                  <option value="1080x1920/320">1080x1920/320</option>
+                </select>
+              </div>
+              <div class="row" style="margin-top:10px;">
+                <button class="btn btn-accent" onclick="launchVirtualDisplay()">🚀 Launch Virtual App</button>
+                <span class="muted">অন্য অ্যাপ ব্যাকগ্রাউন্ড উইন্ডোতে খুলুন</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══════════════════ 4. FILE EXPLORER & SYNC ══════════════════ -->
+        <section id="page-files" class="page">
+          <div class="page-header">
+            <div>
+              <div class="page-title">📁 File Explorer &amp; Folder Sync</div>
+              <div class="page-desc">ফোনের ফাইল ব্রাউজ, হোভার ইমেজ প্রিভিউ, Drag &amp; Drop আপলোড এবং ফোল্ডার সিংক</div>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button class="btn btn-sm" onclick="syncFolder('pull')">⬇️ Backup Folder</button>
+              <button class="btn btn-sm" onclick="syncFolder('push')">⬆️ Sync PC→Phone</button>
+              <button id="btn-autosync" class="btn btn-blue btn-sm" onclick="toggleAutoSync()">👁️ Auto-Sync Watch</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <span>📂 Interactive Phone File Explorer</span>
+              <div class="row" style="gap:8px;">
+                <label class="root-toggle" title="রুটেড ফোনে /data/data, /system ব্রাউজ ও কপি করতে অন করুন">
+                  <input id="exp-root-mode" type="checkbox" onchange="onToggleExplorerRoot()" />
+                  👑 Root Mode
+                </label>
+                <span id="exp-count" class="badge">0 items</span>
+              </div>
+            </div>
+
+            <div id="xfer-box" class="xfer-box">
+              <div class="row" style="justify-content:space-between;">
+                <span id="xfer-label" style="font-weight:700;color:var(--accent);">⏳ Transferring...</span>
+                <div class="row" style="gap:8px;">
+                  <span id="xfer-meta" class="mono muted">0% • 0 B / 0 B • 0 B/s</span>
+                  <button class="btn btn-danger btn-sm" onclick="cancelTransfer()">✕ Cancel</button>
+                </div>
+              </div>
+              <div class="xfer-track"><div id="xfer-fill" class="xfer-fill"></div></div>
+            </div>
+
+            <div class="row">
+              <button class="btn btn-sm" onclick="explorerGo('/sdcard')">🏠 /sdcard</button>
+              <button class="btn btn-sm" onclick="explorerGo('/sdcard/DCIM/Camera')">📷 DCIM</button>
+              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Pictures/Screenshots')">🖼️ Screenshots</button>
+              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Download')">⬇️ Download</button>
+              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Documents')">📄 Docs</button>
+            </div>
+            <div id="exp-root-jumps" class="row" style="display:none;">
+              <span class="badge badge-warn">👑 Root Paths</span>
+              <button class="btn btn-sm" onclick="explorerGo('/')">🔧 / (Root)</button>
+              <button class="btn btn-sm" onclick="explorerGo('/data/data')">🗄️ /data/data</button>
+              <button class="btn btn-sm" onclick="explorerGo('/system')">⚙️ /system</button>
+              <button class="btn btn-sm" onclick="explorerGo('/data/app')">📦 /data/app</button>
+              <button class="btn btn-sm" onclick="explorerGo('/data/misc/apexdata/com.android.wifi')">📶 Wi-Fi Config</button>
+            </div>
+            <div class="row">
+              <button class="btn btn-sm" onclick="explorerUp()">⬆️ Up</button>
+              <input id="exp-path" class="grow mono" type="text" value="/sdcard" onkeydown="if(event.key==='Enter')explorerGo(this.value)" />
+              <button class="btn btn-blue btn-sm" onclick="explorerGo(document.getElementById('exp-path').value)">🔄 Open</button>
+              <input id="exp-filter" style="width:165px;" type="text" placeholder="🔍 Filter files..." oninput="renderExplorer()" />
+            </div>
+            <div class="table-box" style="margin-top:10px; max-height:360px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name (Ctrl/Shift-Click multi-select • Hover image to preview)</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                  </tr>
+                </thead>
+                <tbody id="exp-tbody"></tbody>
+              </table>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <button class="btn btn-sm" onclick="explorerSelectAll()">☑️ Select All</button>
+              <button class="btn btn-accent btn-sm" onclick="explorerDownload()">⬇️ Download</button>
+              <button class="btn btn-blue btn-sm" onclick="explorerUpload()">⬆️ Upload Here</button>
+              <button class="btn btn-sm" onclick="explorerPreview()">🖼️ Preview</button>
+              <button class="btn btn-sm" onclick="explorerNewFolder()">➕ New Folder</button>
+              <button class="btn btn-sm" onclick="explorerRename()">✏️ Rename</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto;" onclick="explorerDelete()">🗑️ Delete</button>
+            </div>
+            <div id="drop-zone" class="drop-zone">
+              📥 ফাইল বা <strong>.apk</strong> এখানে Drag &amp; Drop করুন — <code>.apk</code> অটো ইনস্টল হবে, বাকি ফাইল বর্তমান ফোল্ডারে আপলোড হবে
+            </div>
+          </div>
+        </section>
+
+        <!-- ══════════════════ 5. APPS & PERMISSIONS ══════════════════ -->
+        <section id="page-apps" class="page">
+          <div class="page-header">
+            <div>
+              <div class="page-title">📦 Apps &amp; Runtime Permissions</div>
+              <div class="page-desc">অ্যাপ লঞ্চ, APK ইনস্টল/ব্যাকআপ, ডেটা ক্লিয়ার, আনইনস্টল এবং পারমিশন ম্যানেজমেন্ট</div>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button class="btn btn-accent btn-sm" onclick="installApk()">📲 Install APK...</button>
+              <button class="btn btn-blue btn-sm" onclick="batchInstallApk()">📦 Batch Folder...</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <span>1. App Library, Bloatware &amp; Freezer Manager</span>
               <span id="apps-count" class="badge">0 apps</span>
             </div>
             <div class="row">
+              <select id="app-mode" style="min-width:190px;" onchange="loadApps()">
+                <option value="launcher" selected>📱 Launcher Apps (Icon)</option>
+                <option value="user">👤 User Installed Apps</option>
+                <option value="system">⚙️ System / Bloatware</option>
+                <option value="disabled">❄️ Frozen / Disabled Apps</option>
+              </select>
               <input id="app-filter" class="grow" type="text" placeholder="🔍 Search app name or package..." oninput="renderApps()" />
-              <button class="btn btn-blue" onclick="loadApps()">🔄 Get App List</button>
+              <button class="btn btn-blue" onclick="loadApps()">🔄 Load Apps</button>
               <button class="btn" onclick="currentActivity()">🎯 Current Activity</button>
-              <button class="btn btn-accent" onclick="installApk()">📲 Install APK...</button>
-              <button class="btn btn-blue" onclick="batchInstallApk()">📦 Batch Folder...</button>
             </div>
-            <div class="table-box" style="margin-top:10px;">
+            <div class="table-box" style="margin-top:10px; max-height:310px;">
               <table>
-                <thead><tr><th>App Name</th><th>Package Name</th></tr></thead>
+                <thead><tr><th>App Name</th><th>Package Name</th><th>Status</th></tr></thead>
                 <tbody id="apps-tbody"></tbody>
               </table>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-title">2. Selected App Actions & Permissions</div>
+            <div class="card-title">2. Selected App Actions, Freezer &amp; Permissions</div>
             <div class="row">
               <input id="sel-pkg" class="grow mono" type="text" placeholder="com.whatsapp" />
               <button class="btn btn-accent" onclick="appAction('launch')">▶️ Launch</button>
               <button class="btn" onclick="appAction('stop')">🛑 Stop</button>
+              <button class="btn btn-blue" onclick="freezeApp(true)" title="অ্যাপ ফ্রিজ / ডিসেবল করুন (RAM বাঁচাবে)">❄️ Freeze</button>
+              <button class="btn btn-accent" onclick="freezeApp(false)" title="ফ্রিজ করা অ্যাপ আবার চালু করুন">🔥 Unfreeze</button>
               <button class="btn btn-blue" onclick="packageInfo()">ℹ️ Info</button>
               <button class="btn btn-blue" onclick="backupApk()">💾 Backup APK</button>
               <button class="btn" onclick="appAction('clear')">🧹 Clear</button>
               <button class="btn btn-danger" onclick="appAction('uninstall')">🗑️ Uninstall</button>
             </div>
+            <div class="divider"></div>
             <div class="row">
               <select id="perm-select" class="grow">
                 <option>android.permission.CAMERA</option>
@@ -184,276 +583,31 @@
           </div>
         </section>
 
-        <!-- 3. INTERACTIVE FILE EXPLORER -->
-        <section id="page-files" class="page">
-          <div class="card">
-            <div class="card-title">1. Screenshots, Screen Recording & Folder Auto-Sync</div>
-            <div class="row">
-              <button class="btn btn-accent" onclick="takeScreenshot()">📸 Screenshot</button>
-              <button class="btn" onclick="burstScreenshots()">🎞️ Burst (3x)</button>
-              <span class="muted">Rec Sec:</span>
-              <input id="rec-sec" type="number" value="10" style="width:65px;" />
-              <button class="btn btn-blue" onclick="recordScreen()">🎥 Record Screen</button>
-              <button class="btn" onclick="syncFolder('pull')">⬇️ Backup Folder</button>
-              <button class="btn" onclick="syncFolder('push')">⬆️ Sync PC→Phone</button>
-              <button id="btn-autosync" class="btn btn-blue" onclick="toggleAutoSync()">👁️ Auto-Sync Watch</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">
-              <span>2. 📂 Interactive Phone File Explorer</span>
-              <span id="exp-count" class="badge">0 items</span>
-            </div>
-            <div class="row">
-              <button class="btn btn-sm" onclick="explorerGo('/sdcard')">🏠 /sdcard</button>
-              <button class="btn btn-sm" onclick="explorerGo('/sdcard/DCIM/Camera')">📷 DCIM</button>
-              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Pictures/Screenshots')">🖼️ Screenshots</button>
-              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Download')">⬇️ Download</button>
-              <button class="btn btn-sm" onclick="explorerGo('/sdcard/Documents')">📄 Docs</button>
-            </div>
-            <div class="row">
-              <button class="btn btn-sm" onclick="explorerUp()">⬆️ Up</button>
-              <input id="exp-path" class="grow mono" type="text" value="/sdcard" onkeydown="if(event.key==='Enter')explorerGo(this.value)" />
-              <button class="btn btn-blue btn-sm" onclick="explorerGo(document.getElementById('exp-path').value)">🔄 Open</button>
-              <input id="exp-filter" style="width:150px;" type="text" placeholder="🔍 Filter..." oninput="renderExplorer()" />
-            </div>
-            <div class="table-box" style="margin-top:10px; max-height:330px;">
-              <table>
-                <thead><tr><th>Name (Double-click to open / download)</th><th>Size</th><th>Modified</th></tr></thead>
-                <tbody id="exp-tbody"></tbody>
-              </table>
-            </div>
-            <div class="row" style="margin-top:10px;">
-              <button class="btn btn-accent btn-sm" onclick="explorerDownload()">⬇️ Download</button>
-              <button class="btn btn-blue btn-sm" onclick="explorerUpload()">⬆️ Upload Here</button>
-              <button class="btn btn-sm" onclick="explorerNewFolder()">➕ New Folder</button>
-              <button class="btn btn-sm" onclick="explorerRename()">✏️ Rename</button>
-              <button class="btn btn-danger btn-sm" onclick="explorerDelete()">🗑️ Delete</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- 4. MONITOR -->
-        <section id="page-monitor" class="page">
-          <div class="card">
-            <div class="card-title">
-              <span>System Diagnostics & Live Performance Monitor</span>
-              <button id="btn-live-perf" class="btn btn-accent btn-sm" onclick="toggleLivePerf()">▶️ Start Live Monitor</button>
-            </div>
-            <div class="grid-4">
-              <button class="btn btn-accent" onclick="runMonitor('battery')">🔋 Battery</button>
-              <button class="btn btn-blue" onclick="runMonitor('memory')">🧠 Memory</button>
-              <button class="btn" onclick="runMonitor('cpu')">⚙️ CPU Top</button>
-              <button class="btn" onclick="runMonitor('storage')">💾 Storage</button>
-              <button class="btn" onclick="runMonitor('network')">🌐 Wi-Fi & IP</button>
-              <button class="btn" onclick="runMonitor('processes')">📋 Processes</button>
-              <button class="btn" onclick="runMonitor('props')">📱 Device Props</button>
-              <button class="btn btn-blue" onclick="appsWithSize()">📦 Apps & APK Paths</button>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-title">Snapshot Output</div>
-            <pre id="monitor-out" class="mono" style="max-height:390px;overflow:auto;background:rgba(5,8,17,0.8);padding:12px;border-radius:10px;border:1px solid var(--border);user-select:text;">উপরের যেকোনো ডায়াগনস্টিক বাটনে ক্লিক করুন...</pre>
-          </div>
-        </section>
-
-        <!-- 5. SCREEN SHARE, CAMERA, HID & VIRTUAL DISPLAY -->
-        <section id="page-scrcpy" class="page">
-          <div class="card">
-            <div class="card-title">1. Screen Mirroring, Camera, HID & Multi-Device</div>
-            <div class="grid-3">
-              <button class="btn btn-accent" onclick="startScrcpy('standard')">▶️ Standard Mirror</button>
-              <button class="btn btn-blue" onclick="startScrcpy('smooth')">⚡ Wi-Fi Smooth 60fps</button>
-              <button class="btn btn-blue" onclick="startScrcpy('screen_off')">📴 Screen-Off (-S -w)</button>
-              <button class="btn" onclick="startScrcpy('always_top')">📌 Always on Top</button>
-              <button class="btn" onclick="startScrcpy('read_only')">👁️ Read-Only</button>
-              <button class="btn btn-accent" onclick="startScrcpy('hid')">⌨️ HID Keyboard/Mouse</button>
-              <button class="btn btn-accent" onclick="startScrcpy('cam_back')">📷 Back Camera (BG)</button>
-              <button class="btn btn-blue" onclick="startScrcpy('cam_front')">🤳 Front Camera (BG)</button>
-              <button class="btn" onclick="multiDeviceScrcpy()">📱📱 Multi-Device</button>
-              <button class="btn btn-blue" onclick="scrcpyRecord()">🔴 Record via scrcpy</button>
-              <button class="btn" onclick="scrcpySessions()">🔍 Active Sessions</button>
-              <button class="btn" onclick="checkScrcpy()">✔️ Check scrcpy</button>
-            </div>
-            <div class="row" style="margin-top:10px;">
-              <input id="scrcpy-custom" class="grow mono" type="text" placeholder="Custom scrcpy args (e.g. -m 1024 --max-fps 60)" />
-              <button class="btn btn-accent" onclick="startScrcpy('custom')">🚀 Run Custom</button>
-              <button class="btn btn-danger" onclick="stopScrcpy()">🛑 Stop All scrcpy</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">2. 🖥️ Virtual Display Mode (App-in-Window)</div>
-            <div class="row">
-              <input id="vd-pkg" class="grow mono" type="text" value="com.android.chrome" placeholder="Package name" />
-              <select id="vd-size">
-                <option value="Auto">Auto Size</option>
-                <option value="1280x720/240">1280x720/240</option>
-                <option value="1920x1080/320">1920x1080/320</option>
-                <option value="1080x1920/320">1080x1920/320</option>
-              </select>
-              <button class="btn btn-accent" onclick="launchVirtualDisplay()">🚀 Launch Virtual App</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- 6. WIFI & LIVE TOOLS -->
-        <section id="page-wifi" class="page">
-          <div class="card">
-            <div class="card-title">
-              <span>1. 🛡️ Auto-Reconnect Watchdog (mDNS + Port 5555 + Keep-Alive)</span>
-              <span id="wd-status" class="badge">Idle</span>
-            </div>
-            <div class="row">
-              <button id="btn-watchdog" class="btn btn-accent" onclick="toggleWatchdog()">🛡️ Enable Auto-Reconnect</button>
-              <button class="btn btn-blue" onclick="scanConnect5555()">🔍 Fast Scan Port 5555 (~1s)</button>
-              <label class="row" style="gap:5px;cursor:pointer;"><input id="wd-keepalive" type="checkbox" checked /> Keep-Alive Heartbeat (15s)</label>
-            </div>
-            <div class="row">
-              <button class="btn btn-accent" onclick="installCompanionApk()">📲 Install Companion APK (1-Click)</button>
-              <button class="btn btn-blue" onclick="setupCompanionPermissions()">🛠️ Optimize & Whitelist Companion</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">2. Wireless Debugging & QR Code Pairing (Android 11+)</div>
-            <div class="row">
-              <input id="pair-ip" class="grow mono" type="text" placeholder="Pairing IP:PORT (e.g. 192.168.0.105:41234)" />
-              <input id="pair-code" style="width:130px;" class="mono" type="text" placeholder="6-digit code" />
-              <button class="btn btn-accent" onclick="pairWifiManual()">🔑 Pair Manual</button>
-              <button class="btn btn-blue" onclick="startQrPairing()">📷 Show QR Pairing</button>
-            </div>
-            <div id="qr-box" style="display:none; margin-top:12px; align-items:center; gap:14px;" class="row">
-              <img id="qr-img" style="width:170px;height:170px;border-radius:10px;background:#fff;padding:6px;" alt="ADB Pairing QR" />
-              <div style="display:flex;flex-direction:column;gap:8px;">
-                <div style="font-weight:700;color:var(--accent);">📱 ফোনে স্ক্যান করুন:</div>
-                <div class="muted">Developer Options → Wireless Debugging → Pair device with QR code</div>
-                <div id="qr-status" class="badge">Waiting...</div>
-                <button class="btn btn-danger btn-sm" style="width:fit-content;" onclick="stopQrPairing()">✕ Close QR</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">2. TCP/IP Mode & Wi-Fi Diagnostics</div>
-            <div class="row">
-              <span class="muted">Port:</span>
-              <input id="tcpip-port" type="number" value="5555" style="width:85px;" />
-              <button class="btn btn-accent" onclick="enableTcpip()">🔁 Enable TCP/IP</button>
-              <button class="btn btn-blue" onclick="transferAllTcpip()">📡 Transfer All USB → Wi-Fi</button>
-              <button class="btn" onclick="wifiStatus()">📶 Detailed Wi-Fi Status</button>
-              <button class="btn btn-danger" onclick="disconnectDevice()">🔌 Disconnect Wi-Fi</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">3. Live Logcat Streamer & Tool Settings</div>
-            <div class="row">
-              <input id="live-log-kw" class="grow" type="text" placeholder="Live Logcat keyword filter (optional)..." />
-              <button id="btn-live-logcat" class="btn btn-accent" onclick="toggleLiveLogcat()">▶️ Start Live Logcat</button>
-            </div>
-            <div class="row">
-              <span class="muted">Command Timeout (sec):</span>
-              <input id="adb-timeout" type="number" value="30" style="width:85px;" />
-              <button class="btn btn-blue" onclick="saveTimeout()">💾 Save Timeout</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- 6. QUICK CONTROLS -->
-        <section id="page-controls" class="page">
-          <div class="card">
-            <div class="card-title">1. Quick System Toggles</div>
-            <div class="grid-4">
-              <button class="btn btn-accent" onclick="sysToggle('data', true)">📶 Data ON</button>
-              <button class="btn btn-danger" onclick="sysToggle('data', false)">📴 Data OFF</button>
-              <button class="btn btn-blue" onclick="sysToggle('bluetooth', true)">🔵 Bluetooth ON</button>
-              <button class="btn" onclick="sysToggle('bluetooth', false)">⚫ Bluetooth OFF</button>
-              <button class="btn btn-accent" onclick="sysToggle('location', true)">📍 Location ON</button>
-              <button class="btn" onclick="sysToggle('location', false)">🚫 Location OFF</button>
-              <button class="btn btn-blue" onclick="sysToggle('flashlight', true)">🔦 Torch ON</button>
-              <button class="btn" onclick="sysToggle('flashlight', false)">🌑 Torch OFF</button>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-title">2. Display Brightness & Screen Timeout</div>
-            <div class="row">
-              <span>☀️ Brightness:</span>
-              <input id="bright-range" class="grow" type="range" min="0" max="255" value="140" oninput="document.getElementById('bright-val').textContent=this.value" />
-              <span id="bright-val" class="badge">140</span>
-              <button class="btn btn-accent" onclick="sysToggle('brightness', parseInt(document.getElementById('bright-range').value))">Apply</button>
-            </div>
-            <div class="row">
-              <span>⏱️ Screen Timeout:</span>
-              <select id="timeout-sel" class="grow">
-                <option value="15000">15 Seconds</option>
-                <option value="30000">30 Seconds</option>
-                <option value="60000" selected>1 Minute</option>
-                <option value="120000">2 Minutes</option>
-                <option value="300000">5 Minutes</option>
-                <option value="600000">10 Minutes</option>
-                <option value="1800000">30 Minutes</option>
-              </select>
-              <button class="btn btn-blue" onclick="sysToggle('timeout', parseInt(document.getElementById('timeout-sel').value))">Apply Timeout</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- 7. PROFILES -->
-        <section id="page-profiles" class="page">
-          <div class="card">
-            <div class="card-title">
-              <span>1. Device Fingerprint & 1-Click Unlock Profile</span>
-              <button class="btn btn-blue btn-sm" onclick="detectProfile()">🔍 Detect Connected</button>
-            </div>
-            <div class="row">
-              <input id="prof-fp" class="grow mono" type="text" placeholder="ro.build.fingerprint" />
-              <input id="prof-name" style="width:190px;" type="text" placeholder="Device Name" />
-            </div>
-            <div class="row">
-              <select id="prof-lock" class="grow"></select>
-              <select id="prof-proc" class="grow"></select>
-            </div>
-            <div class="row">
-              <input id="prof-val" class="grow" type="password" placeholder="PIN / Password / Pattern (e.g. 1234 or 1-4-7-8-9)" />
-              <input id="prof-coords" style="width:140px;" type="text" value="auto" placeholder="Swipe coords" />
-              <button class="btn btn-accent" onclick="saveProfile()">💾 Save</button>
-              <button class="btn btn-blue" onclick="oneClickUnlock()">🔓 Test Unlock</button>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-title">
-              <span>2. Saved Profiles</span>
-              <button class="btn btn-sm" onclick="loadProfiles()">🔄 Refresh</button>
-            </div>
-            <div class="table-box">
-              <table>
-                <thead><tr><th>Device</th><th>Lock Type</th><th>Process</th><th>Action</th></tr></thead>
-                <tbody id="prof-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <!-- 8. COMMS -->
+        <!-- ══════════════════ 6. COMMS (NOTIFICATIONS, SMS/OTP & CALLS) ══════════════════ -->
         <section id="page-comms" class="page">
-          <div class="subtabs">
-            <button class="subtab-btn active" onclick="switchComms('notif', this)">🔔 Notifications</button>
-            <button class="subtab-btn" onclick="switchComms('sms', this)">📩 SMS / OTP & Calls</button>
+          <div class="page-header">
+            <div>
+              <div class="page-title">💬 Comms — Notifications, SMS/OTP &amp; Calls</div>
+              <div class="page-desc">ফোনের লাইভ নোটিফিকেশন, অটো-OTP কপি এবং কুইক ডায়ালার</div>
+            </div>
+            <div class="subtabs">
+              <button class="subtab-btn active" onclick="switchComms('notif', this)">🔔 Notifications</button>
+              <button class="subtab-btn" onclick="switchComms('sms', this)">📩 SMS &amp; OTP</button>
+              <button class="subtab-btn" onclick="switchComms('calls', this)">☎️ Calls &amp; Dialer</button>
+            </div>
           </div>
 
           <div id="comms-notif">
             <div class="card">
               <div class="card-title">
-                <span>Live Phone Notifications</span>
+                <span>🔔 Live Phone Notifications</span>
                 <div class="row">
                   <button class="btn btn-accent btn-sm" onclick="loadNotifications()">🔄 Refresh</button>
                   <button class="btn btn-sm" onclick="runShellDirect('cmd statusbar expand-notifications')">📂 Shade</button>
                   <button class="btn btn-sm" onclick="runShellDirect('cmd statusbar collapse')">🔼 Collapse</button>
                 </div>
               </div>
-              <div class="table-box" style="max-height:420px;">
+              <div class="table-box" style="max-height:460px;">
                 <table>
                   <thead><tr><th>App</th><th>Title</th><th>Message (Click to copy)</th></tr></thead>
                   <tbody id="notif-tbody"></tbody>
@@ -464,9 +618,28 @@
 
           <div id="comms-sms" style="display:none; flex-direction:column; gap:12px;">
             <div class="card">
-              <div class="card-title">📞 Quick Dialer & Call Control</div>
+              <div class="card-title">
+                <span>📩 Recent SMS &amp; Auto-OTP</span>
+                <button class="btn btn-accent btn-sm" onclick="loadSms()">🔄 Refresh SMS</button>
+              </div>
+              <div class="table-box" style="max-height:460px;">
+                <table>
+                  <thead><tr><th>Sender</th><th>OTP (Click row to copy)</th><th>Message</th><th>Time</th></tr></thead>
+                  <tbody id="sms-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div id="comms-calls" style="display:none; flex-direction:column; gap:12px;">
+            <div class="card">
+              <div class="card-title">
+                <span>📞 Quick Dialer &amp; Call Control</span>
+                <button class="btn btn-sm" onclick="loadPhoneNumbers(false)">📱 Refresh My SIM</button>
+              </div>
+              <div id="comms-sim-strip" class="row" style="margin-bottom:8px; display:none;"></div>
               <div class="row">
-                <input id="dial-num" class="grow" type="text" placeholder="017XXXXXXXX" onkeydown="if(event.key==='Enter')dialNumber()" />
+                <input id="dial-num" class="grow mono" type="text" placeholder="017XXXXXXXX" onkeydown="if(event.key==='Enter')dialNumber()" />
                 <button class="btn btn-accent" onclick="dialNumber()">📞 Dial</button>
                 <button class="btn btn-blue" onclick="callAction('answer')">📲 Answer</button>
                 <button class="btn btn-danger" onclick="callAction('end')">📵 End Call</button>
@@ -474,25 +647,10 @@
             </div>
             <div class="card">
               <div class="card-title">
-                <span>📩 Recent SMS & Auto-OTP</span>
-                <button class="btn btn-accent btn-sm" onclick="loadSms()">🔄 Refresh SMS</button>
-              </div>
-              <div class="table-box" style="max-height:200px;">
-                <table>
-                  <thead><tr><th>Sender</th><th>OTP (Click to copy)</th><th>Message</th><th>Time</th></tr></thead>
-                  <tbody id="sms-tbody"></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-title">
                 <span>☎️ Recent Call Logs</span>
-                <div class="row">
-                  <button class="btn btn-blue btn-sm" onclick="loadCalls()">🔄 Refresh Calls</button>
-                  <button class="btn btn-accent btn-sm" onclick="dialNumber()">📞 Dial Selected</button>
-                </div>
+                <button class="btn btn-blue btn-sm" onclick="loadCalls()">🔄 Refresh Calls</button>
               </div>
-              <div class="table-box" style="max-height:190px;">
+              <div class="table-box" style="max-height:360px;">
                 <table>
                   <thead><tr><th>Number</th><th>Name</th><th>Type</th><th>Duration</th><th>Time</th></tr></thead>
                   <tbody id="calls-tbody"></tbody>
@@ -502,13 +660,18 @@
           </div>
         </section>
 
-        <!-- 9. MACRO & PHYSICAL ACTION RECORDER -->
+        <!-- ══════════════════ 7. MACRO, RECORDER & UI INSPECTOR ══════════════════ -->
         <section id="page-macro" class="page">
-          <div class="card">
-            <div class="card-title">
-              <span>1. 🔴 Physical Action Recorder</span>
-              <span id="rec-badge" class="pill" style="display:none;"><span class="dot rec"></span><span id="rec-badge-txt">REC</span></span>
+          <div class="page-header">
+            <div>
+              <div class="page-title">🤖 Automation Studio — Macro, Recorder &amp; UI Inspector</div>
+              <div class="page-desc">ফোনের অ্যাকশন রেকর্ড, ভিজ্যুয়াল বাটন পিকার এবং ১-ক্লিক লুপ অটোমেশন</div>
             </div>
+            <span id="rec-badge" class="pill" style="display:none;"><span class="dot rec"></span><span id="rec-badge-txt">REC</span></span>
+          </div>
+
+          <div class="card">
+            <div class="card-title">1. 🔴 Physical Action Recorder &amp; 🎯 Visual UI Inspector</div>
             <div class="row">
               <select id="rec-mode" class="grow">
                 <option value="fast">⚡ Fast Gesture Mode (Tap / Swipe / Long Press / Back / Home)</option>
@@ -521,13 +684,17 @@
             <div class="row">
               <button id="btn-rec" class="btn btn-danger" onclick="toggleRecording()">🔴 Start Recording</button>
               <button id="btn-rec-pause" class="btn btn-blue" onclick="togglePauseRecording()" disabled>⏸️ Pause</button>
+              <button class="btn btn-accent" onclick="openUiInspector()">🎯 Visual UI Inspector</button>
               <button class="btn" onclick="clearMacroSteps()">🧹 Clear Steps</button>
               <span id="rec-status" class="muted">Idle — হাতে ফোন নিয়ে কাজ রেকর্ড করুন।</span>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-title">2. Saved Macros & Replay / Loop</div>
+            <div class="card-title">
+              <span>2. ⚡ Macro Library &amp; Step Sequencer</span>
+              <span id="macro-step-count" class="badge">0 steps</span>
+            </div>
             <div class="row">
               <select id="macro-select" style="width:190px;" onchange="onSelectMacro()"></select>
               <input id="macro-name" class="grow" type="text" placeholder="Macro name..." />
@@ -538,14 +705,7 @@
               <button class="btn btn-blue" onclick="saveMacro()">💾 Save</button>
               <button class="btn" onclick="deleteMacro()">🗑️</button>
             </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">
-              <span>3. Automation Step Sequencer</span>
-              <span id="macro-step-count" class="badge">0 steps</span>
-            </div>
-            <div class="table-box" style="max-height:260px;">
+            <div class="table-box" style="margin-top:10px; max-height:270px;">
               <table>
                 <thead><tr><th>#</th><th>Action</th><th>Argument</th><th>Details / Element</th><th>Move / Del</th></tr></thead>
                 <tbody id="macro-tbody"></tbody>
@@ -572,6 +732,158 @@
             </div>
           </div>
         </section>
+
+        <!-- ══════════════════ 8. MONITOR, SHELL & PROFILES (PRO HUB) ══════════════════ -->
+        <section id="page-dev" class="page">
+          <div class="page-header">
+            <div>
+              <div class="page-title">🔧 Monitor, Dev Tools &amp; Unlock Profiles</div>
+              <div class="page-desc">লাইভ ব্যাটারি/সিস্টেম হেলথ, ADB শেল, লগক্যাট এবং ডিভাইস আনলক প্রোফাইল</div>
+            </div>
+            <div class="subtabs">
+              <button class="subtab-btn active" onclick="switchDevTab('monitor', this)">🔋 Health &amp; Monitor</button>
+              <button class="subtab-btn" onclick="switchDevTab('shell', this)">💻 Shell &amp; Logcat</button>
+              <button class="subtab-btn" onclick="switchDevTab('profiles', this)">🔑 Unlock Profiles</button>
+            </div>
+          </div>
+
+          <!-- Subtab 1: Battery Graph + System Diagnostics -->
+          <div id="dev-monitor" style="display:flex; flex-direction:column; gap:12px;">
+            <div class="card">
+              <div class="card-title">
+                <span>🔋 Live Battery Health, Wattage &amp; Graph</span>
+                <div class="row" style="gap:6px;">
+                  <span id="bat-status-badge" class="badge">Idle</span>
+                  <button class="btn btn-sm" onclick="refreshBatteryDetail()">🔄 Read Now</button>
+                  <button id="btn-bat-graph" class="btn btn-accent btn-sm" onclick="toggleBatteryGraph()">▶️ Live Graph</button>
+                </div>
+              </div>
+              <div class="stat-grid">
+                <div class="stat-tile"><span class="stat-lbl">Level</span><span id="bat-v-lvl" class="stat-val">--%</span></div>
+                <div class="stat-tile"><span class="stat-lbl">Power</span><span id="bat-v-watt" class="stat-val">-- W</span></div>
+                <div class="stat-tile"><span class="stat-lbl">Current</span><span id="bat-v-ma" class="stat-val">-- mA</span></div>
+                <div class="stat-tile"><span class="stat-lbl">Voltage</span><span id="bat-v-volt" class="stat-val">-- V</span></div>
+                <div class="stat-tile"><span class="stat-lbl">Temp</span><span id="bat-v-temp" class="stat-val">-- °C</span></div>
+                <div class="stat-tile"><span class="stat-lbl">Health</span><span id="bat-v-health" class="stat-val">--</span></div>
+              </div>
+              <div class="bat-graph-wrap">
+                <div class="bat-legend">
+                  <span><i class="leg-dot" style="background:#10b981;"></i>Level (%)</span>
+                  <span><i class="leg-dot" style="background:#22d3ee;"></i>Power (W)</span>
+                  <span><i class="leg-dot" style="background:#f59e0b;"></i>Temp (°C)</span>
+                  <span id="bat-cap-info" class="mono muted" style="margin-left:auto;"></span>
+                </div>
+                <svg id="bat-svg" viewBox="0 0 600 110" style="width:100%;height:110px;display:block;"></svg>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">
+                <span>📊 System Diagnostics &amp; Live Performance Monitor</span>
+                <button id="btn-live-perf" class="btn btn-accent btn-sm" onclick="toggleLivePerf()">▶️ Start Live Monitor</button>
+              </div>
+              <div class="grid-4">
+                <button class="btn btn-accent" onclick="runMonitor('battery')">🔋 Battery</button>
+                <button class="btn btn-blue" onclick="runMonitor('memory')">🧠 Memory</button>
+                <button class="btn" onclick="runMonitor('cpu')">⚙️ CPU Top</button>
+                <button class="btn" onclick="runMonitor('storage')">💾 Storage</button>
+                <button class="btn" onclick="runMonitor('network')">🌐 Wi-Fi &amp; IP</button>
+                <button class="btn" onclick="runMonitor('processes')">📋 Processes</button>
+                <button class="btn" onclick="runMonitor('props')">📱 Device Props</button>
+                <button class="btn btn-blue" onclick="appsWithSize()">📦 Apps &amp; APK Paths</button>
+              </div>
+              <pre id="monitor-out" class="mono" style="margin-top:10px;max-height:280px;overflow:auto;background:rgba(5,8,17,0.8);padding:12px;border-radius:10px;border:1px solid var(--border);user-select:text;">উপরের যেকোনো ডায়াগনস্টিক বাটনে ক্লিক করুন...</pre>
+            </div>
+          </div>
+
+          <!-- Subtab 2: Shell, Logcat & Tool Settings -->
+          <div id="dev-shell" style="display:none; flex-direction:column; gap:12px;">
+            <div class="card">
+              <div class="card-title">
+                <span>1. 💻 Custom ADB &amp; Root Shell Command</span>
+                <div class="row" style="gap:8px;">
+                  <label class="root-toggle" title="su -c দিয়ে Root হিসেবে কমান্ড চালাবে">
+                    <input id="shell-root" type="checkbox" />
+                    👑 Run as Root (su)
+                  </label>
+                  <button class="btn btn-sm" onclick="checkRootStatus()">👑 Check Root</button>
+                </div>
+              </div>
+              <div class="row">
+                <input id="shell-cmd" class="grow mono" type="text" value="getprop ro.product.model" onkeydown="if(event.key==='Enter')runShell()" />
+                <button class="btn btn-accent" onclick="runShell()">▶ Run Shell</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">2. 📜 Logcat Snapshot &amp; Live Streamer</div>
+              <div class="sub-label">Fetch Filtered Snapshot</div>
+              <div class="row">
+                <span class="muted">Lines:</span>
+                <input id="log-lines" type="number" value="150" style="width:76px;" />
+                <select id="log-mode">
+                  <option value="All">All</option>
+                  <option value="Errors">Errors (*:E)</option>
+                  <option value="Warnings">Warnings (*:W)</option>
+                </select>
+                <input id="log-kw" class="grow" type="text" placeholder="Keyword filter (optional)..." onkeydown="if(event.key==='Enter')fetchLogs()" />
+                <button class="btn btn-blue" onclick="fetchLogs()">📜 Fetch Logs</button>
+              </div>
+              <div class="divider"></div>
+              <div class="sub-label">Real-Time Logcat Stream</div>
+              <div class="row">
+                <input id="live-log-kw" class="grow" type="text" placeholder="Live Logcat keyword filter (optional)..." />
+                <button id="btn-live-logcat" class="btn btn-accent" onclick="toggleLiveLogcat()">▶️ Start Live Logcat</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-title">3. ⚙️ ADB Tool Settings</div>
+              <div class="row">
+                <span class="muted">Command Timeout (sec):</span>
+                <input id="adb-timeout" type="number" value="30" style="width:85px;" />
+                <button class="btn btn-blue" onclick="saveTimeout()">💾 Save Timeout</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subtab 3: Device Unlock Profiles -->
+          <div id="dev-profiles" style="display:none; flex-direction:column; gap:12px;">
+            <div class="card">
+              <div class="card-title">
+                <span>1. 🔑 Device Fingerprint &amp; 1-Click Unlock Profile</span>
+                <button class="btn btn-blue btn-sm" onclick="detectProfile()">🔍 Detect Connected</button>
+              </div>
+              <div class="row">
+                <input id="prof-fp" class="grow mono" type="text" placeholder="ro.build.fingerprint" />
+                <input id="prof-name" style="width:200px;" type="text" placeholder="Device Name" />
+              </div>
+              <div class="row">
+                <select id="prof-lock" class="grow"></select>
+                <select id="prof-proc" class="grow"></select>
+              </div>
+              <div class="row">
+                <input id="prof-val" class="grow" type="password" placeholder="PIN / Password / Pattern (e.g. 1234 or 1-4-7-8-9)" />
+                <input id="prof-coords" style="width:140px;" type="text" value="auto" placeholder="Swipe coords" />
+                <button class="btn btn-accent" onclick="saveProfile()">💾 Save</button>
+                <button class="btn btn-blue" onclick="oneClickUnlock()">🔓 Test Unlock</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                <span>2. Saved Device Profiles</span>
+                <button class="btn btn-sm" onclick="loadProfiles()">🔄 Refresh</button>
+              </div>
+              <div class="table-box">
+                <table>
+                  <thead><tr><th>Device</th><th>Lock Type</th><th>Process</th><th>Action</th></tr></thead>
+                  <tbody id="prof-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
       </main>
 
       <!-- COLLAPSIBLE RIGHT LIVE CONSOLE -->
@@ -589,7 +901,7 @@
     </div>
   </div>
 
-  <!-- SCREENSHOT LIGHTBOX MODAL -->
+  <!-- SCREENSHOT / IMAGE PREVIEW LIGHTBOX MODAL -->
   <div id="shot-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
     <div class="modal-box">
       <div class="row" style="width:100%; justify-content:space-between;">
@@ -600,9 +912,41 @@
     </div>
   </div>
 
+  <!-- VISUAL LIVE UI INSPECTOR MODAL -->
+  <div id="insp-modal" class="modal-backdrop" onclick="if(event.target===this)closeUiInspector()">
+    <div class="modal-box" style="max-width:94vw; align-items:stretch;">
+      <div class="row" style="width:100%; justify-content:space-between;">
+        <span id="insp-title" style="font-weight:700;color:var(--accent);">🎯 Visual Live UI Inspector &amp; Click-to-Macro Picker</span>
+        <div class="row" style="gap:6px;">
+          <button class="btn btn-blue btn-sm" onclick="refreshUiInspector()">🔄 Refresh Screen</button>
+          <button class="btn btn-sm btn-danger" onclick="closeUiInspector()">✕ Close</button>
+        </div>
+      </div>
+      <div class="insp-layout">
+        <div class="insp-stage">
+          <img id="insp-img" alt="Phone UI" />
+          <canvas id="insp-canvas"></canvas>
+        </div>
+        <div class="insp-side">
+          <div id="insp-info" class="insp-info mono muted">স্ক্রিনের যেকোনো বাটনের ওপর মাউস নিন অথবা ক্লিক করুন...</div>
+          <button class="btn btn-accent" onclick="inspectorTapPhone()">👆 Tap on Phone</button>
+          <button class="btn btn-blue" onclick="inspectorAddMacro('smart')">🧠 Add Smart Tap to Macro</button>
+          <button class="btn" onclick="inspectorAddMacro('coord')">📍 Add Exact (X,Y) Tap to Macro</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLOATING HOVER IMAGE PREVIEW -->
+  <div id="hover-preview" class="hover-preview">
+    <img id="hover-preview-img" alt="Preview" style="display:none;" />
+    <div id="hover-preview-meta" class="hover-preview-meta mono">⏳ Loading...</div>
+  </div>
+
   <!-- FLOATING TOAST STACK -->
   <div id="toast-stack" class="toast-stack"></div>
 
   <script src="app.js"></script>
 </body>
+
 </html>
